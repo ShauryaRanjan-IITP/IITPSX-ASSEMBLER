@@ -362,6 +362,14 @@ static void pass2(void)
             operand = 0;
         }
 
+        /* Validate the signed 24-bit operand range before encoding */
+        if (operand < -8388608L || operand > 8388607L) {
+            printf("Line %d: Error: Operand %ld out of signed 24-bit range for '%s'\n",
+                   program[i].line_number, operand, program[i].mnemonic);
+            error_count++;
+            continue;
+        }
+
         word = ((operand & 0xFFFFFFL) << 8) | (inst->opcode & 0xFF);
         printf("LC %-2d | %08lX | Line %d: %s %s\n",
                program[i].location_counter,
@@ -435,6 +443,9 @@ int main(void)
     const char *set_multi_source[6];
     const char *set_nolabel_source[2];
     const char *comment_source[5];
+    const char *range_ok_source[3];
+    const char *range_bad_source[3];
+    const char *range_sym_source[3];
 
     /* Test 2 error cases */
     error_source[0] = "fibble";
@@ -485,6 +496,21 @@ int main(void)
     comment_source[3] = "loop: br loop ; branch back";
     comment_source[4] = "HALT ; done";
 
+    /* Signed 24-bit operand range: boundary values accepted */
+    range_ok_source[0] = "ldc 8388607";
+    range_ok_source[1] = "ldc -8388608";
+    range_ok_source[2] = "HALT";
+
+    /* Signed 24-bit operand range: overflow rejected, valid line still encodes */
+    range_bad_source[0] = "ldc 8388608";
+    range_bad_source[1] = "ldc -8388609";
+    range_bad_source[2] = "ldc 5";
+
+    /* Symbolic operand resolving out of range is rejected */
+    range_sym_source[0] = "big: SET 8388608";
+    range_sym_source[1] = "ldc big";
+    range_sym_source[2] = "HALT";
+
     run_test("TEST A: PARSER ERRORS", error_source, 6);
     run_test("TEST B: SYMBOL RESOLUTION", resolve_source, 11);
     run_test("TEST C: UNDEFINED LABEL", undefined_source, 2);
@@ -492,6 +518,9 @@ int main(void)
     run_test("TEST E: MULTIPLE SET + NORMAL LABEL", set_multi_source, 6);
     run_test("TEST F: SET WITHOUT LABEL", set_nolabel_source, 2);
     run_test("TEST G: COMMENTS", comment_source, 5);
+    run_test("TEST H: RANGE VALID BOUNDS", range_ok_source, 3);
+    run_test("TEST I: RANGE OVERFLOW", range_bad_source, 3);
+    run_test("TEST J: SYMBOLIC RANGE OVERFLOW", range_sym_source, 3);
 
     return 0;
 }
