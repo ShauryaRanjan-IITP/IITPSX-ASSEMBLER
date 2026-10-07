@@ -380,6 +380,17 @@ static void pass2(void)
     }
 }
 
+/* Warn about symbols that were defined but never referenced (non-fatal) */
+static void print_unused_warnings(void)
+{
+    int i;
+    for (i = 0; i < symtab_count; i++) {
+        if (SYMTAB[i].used == 0) {
+            printf("Warning: Unused label '%s'\n", SYMTAB[i].name);
+        }
+    }
+}
+
 /* Print all ParsedLine records stored in RAM */
 static void print_parsed_lines(void)
 {
@@ -429,6 +440,9 @@ static void run_test(const char *title, const char **source, int count)
     /* Pass 2 (only if no errors) */
     if (error_count == 0) {
         pass2();
+        if (error_count == 0) {
+            print_unused_warnings();
+        }
     } else {
         printf("\nPass 2 skipped due to errors.\n");
     }
@@ -446,6 +460,10 @@ int main(void)
     const char *range_ok_source[3];
     const char *range_bad_source[3];
     const char *range_sym_source[3];
+    const char *unused_normal_source[4];
+    const char *used_normal_source[3];
+    const char *unused_set_source[2];
+    const char *used_set_source[3];
 
     /* Test 2 error cases */
     error_source[0] = "fibble";
@@ -511,6 +529,26 @@ int main(void)
     range_sym_source[1] = "ldc big";
     range_sym_source[2] = "HALT";
 
+    /* Unused normal label: 'unused' warns, 'start' is referenced */
+    unused_normal_source[0] = "start: ldc 10";
+    unused_normal_source[1] = "HALT";
+    unused_normal_source[2] = "unused: data 50";
+    unused_normal_source[3] = "ldc start";
+
+    /* Referenced normal label: no warning */
+    used_normal_source[0] = "here: ldc 7";
+    used_normal_source[1] = "ldc here";
+    used_normal_source[2] = "HALT";
+
+    /* Unused SET label: warning */
+    unused_set_source[0] = "k: SET 5";
+    unused_set_source[1] = "HALT";
+
+    /* Referenced SET label: no warning */
+    used_set_source[0] = "value: SET 25";
+    used_set_source[1] = "ldc value";
+    used_set_source[2] = "HALT";
+
     run_test("TEST A: PARSER ERRORS", error_source, 6);
     run_test("TEST B: SYMBOL RESOLUTION", resolve_source, 11);
     run_test("TEST C: UNDEFINED LABEL", undefined_source, 2);
@@ -521,6 +559,10 @@ int main(void)
     run_test("TEST H: RANGE VALID BOUNDS", range_ok_source, 3);
     run_test("TEST I: RANGE OVERFLOW", range_bad_source, 3);
     run_test("TEST J: SYMBOLIC RANGE OVERFLOW", range_sym_source, 3);
+    run_test("TEST K: UNUSED NORMAL LABEL", unused_normal_source, 4);
+    run_test("TEST L: REFERENCED NORMAL LABEL", used_normal_source, 3);
+    run_test("TEST M: UNUSED SET LABEL", unused_set_source, 2);
+    run_test("TEST N: REFERENCED SET LABEL", used_set_source, 3);
 
     return 0;
 }
