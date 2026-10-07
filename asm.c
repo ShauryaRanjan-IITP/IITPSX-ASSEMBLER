@@ -417,19 +417,16 @@ static void reset_program(void)
     error_count = 0;
 }
 
-/* Minimal temporary harness: parse, Pass 1, and Pass 2 for one test program */
-static void run_test(const char *title, const char **source, int count)
+/* Parse one source line and append it to the parsed program */
+static void add_source_line(int line_num, const char *line)
 {
-    int i;
+    parse_line(line_num, line, &program[total_lines]);
+    total_lines++;
+}
 
-    reset_program();
-    printf("\n=== %s ===\n", title);
-
-    for (i = 0; i < count; i++) {
-        parse_line(i + 1, source[i], &program[total_lines]);
-        total_lines++;
-    }
-
+/* Run Pass 1, report state, then Pass 2 and unused-label warnings */
+static void run_passes(void)
+{
     printf("\nSyntax errors: %d\n", error_count);
 
     /* Pass 1 */
@@ -448,7 +445,54 @@ static void run_test(const char *title, const char **source, int count)
     }
 }
 
-int main(void)
+/* Minimal temporary harness: parse, Pass 1, and Pass 2 for one test program */
+static void run_test(const char *title, const char **source, int count)
+{
+    int i;
+
+    reset_program();
+    printf("\n=== %s ===\n", title);
+
+    for (i = 0; i < count; i++) {
+        add_source_line(i + 1, source[i]);
+    }
+
+    run_passes();
+}
+
+/* Assemble a source file: read line by line and feed the existing parser */
+static int assemble_file(const char *filename)
+{
+    FILE *fp;
+    char line[256];
+    int line_num = 0;
+
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        printf("Error: Cannot open source file '%s'\n", filename);
+        return 0;
+    }
+
+    reset_program();
+    printf("\n=== FILE: %s ===\n", filename);
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        line_num++;
+        add_source_line(line_num, line);
+    }
+
+    if (ferror(fp)) {
+        printf("Error: Failed while reading '%s'\n", filename);
+        error_count++;
+    }
+    fclose(fp);
+
+    run_passes();
+    return (error_count == 0);
+}
+
+/* Built-in regression tests (run with: asm --test) */
+static void run_all_tests(void)
 {
     const char *error_source[6];
     const char *resolve_source[11];
@@ -563,6 +607,20 @@ int main(void)
     run_test("TEST L: REFERENCED NORMAL LABEL", used_normal_source, 3);
     run_test("TEST M: UNUSED SET LABEL", unused_set_source, 2);
     run_test("TEST N: REFERENCED SET LABEL", used_set_source, 3);
+}
 
-    return 0;
+int main(int argc, char *argv[])
+{
+    if (argc == 2 && strcmp(argv[1], "--test") == 0) {
+        run_all_tests();
+        return 0;
+    }
+
+    if (argc != 2) {
+        printf("Usage: %s <source.asm>\n", argv[0]);
+        printf("       %s --test    (run built-in regression tests)\n", argv[0]);
+        return 1;
+    }
+
+    return assemble_file(argv[1]) ? 0 : 1;
 }
