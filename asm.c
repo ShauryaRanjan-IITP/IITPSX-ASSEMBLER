@@ -140,6 +140,7 @@ static void parse_line(int line_num, const char *line, struct ParsedLine *pl)
 {
     char line_copy[256];
     char extra[32];
+    char *comment;
     char *colon;
     char *stmt_ptr;
     int num_scanned;
@@ -150,6 +151,13 @@ static void parse_line(int line_num, const char *line, struct ParsedLine *pl)
 
     strncpy(line_copy, line, sizeof(line_copy) - 1);
     line_copy[sizeof(line_copy) - 1] = '\0';
+
+    /* Strip comments: everything from the first ';' to end of line is ignored */
+    comment = strchr(line_copy, ';');
+    if (comment != NULL) {
+        *comment = '\0';
+    }
+
     trim(line_copy);
 
     if (line_copy[0] == '\0') {
@@ -426,6 +434,7 @@ int main(void)
     const char *set_source[3];
     const char *set_multi_source[6];
     const char *set_nolabel_source[2];
+    const char *comment_source[5];
 
     /* Test 2 error cases */
     error_source[0] = "fibble";
@@ -469,12 +478,20 @@ int main(void)
     set_nolabel_source[0] = "SET 25";
     set_nolabel_source[1] = "value: SET 25";
 
+    /* Comments: full-line, indented, after operand, after labelled instruction */
+    comment_source[0] = "; full line comment";
+    comment_source[1] = "   ; indented comment";
+    comment_source[2] = "ldc 10 ; comment after instruction";
+    comment_source[3] = "loop: br loop ; branch back";
+    comment_source[4] = "HALT ; done";
+
     run_test("TEST A: PARSER ERRORS", error_source, 6);
     run_test("TEST B: SYMBOL RESOLUTION", resolve_source, 11);
     run_test("TEST C: UNDEFINED LABEL", undefined_source, 2);
     run_test("TEST D: BASIC SET", set_source, 3);
     run_test("TEST E: MULTIPLE SET + NORMAL LABEL", set_multi_source, 6);
     run_test("TEST F: SET WITHOUT LABEL", set_nolabel_source, 2);
+    run_test("TEST G: COMMENTS", comment_source, 5);
 
     return 0;
 }
