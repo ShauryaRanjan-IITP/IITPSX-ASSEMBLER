@@ -1,26 +1,24 @@
 # CURRENT_TASK.md
 
 ## Task
-**Complete Pass 2 symbol resolution.**
+**Implement `.o` object-file output.**
 
 ## Scope (only what is relevant now)
-- Numeric operands must continue to work exactly as they do today.
-- Symbolic operands must be resolved through `SYMTAB` (look up the label's `address`).
-- Undefined labels must produce an error (fatal: abort code output).
-- Branch instructions require `Target - (LC + 1)` as the emitted operand.
-- Preserve the current Parser / Pass 1 architecture; do not move validation between stages.
-- Remove the redundant Pass 2 `inst == NULL` check, because parser validation already guarantees a valid mnemonic.
-- Mark resolved symbols as used (`SYMTAB[i].used = 1`) when referenced.
+- After Pass 2, write the assembled machine words to a binary object file.
+- Open the object file in binary mode (`"wb"`) per ADR §1, so newline/EOF translation cannot corrupt bytes.
+- Code starts at address zero: the first emitted word corresponds to `LC 0`.
+- Write each generated 32-bit machine word for every emitted instruction and `data` directive.
+- Do not emit a word for `SET` (it produces no machine word).
+- Do not write an object file when `error_count > 0` (assembly failed).
+- Reuse the existing Pass 2 word generation and error handling; do not redesign the parser or Pass 1.
 
 ## Out of scope (do not implement yet)
-- File input/output (`.o`, `.lst`).
-- `SET` handling.
-- Unused-label warnings.
+- `.lst` listing output (still not implemented).
+- Unused-label warning changes (already implemented).
 - Any other unrelated feature.
 
 ## Done When
-- Numeric operands encode as before.
-- Symbolic operands resolve correctly (including forward references set up by Pass 1).
-- Undefined labels raise an error and prevent output.
-- Branch instructions emit `Target - (LC + 1)`.
-- Code still compiles cleanly under the strict C89 flags.
+- A valid source file produces a `.o` binary file containing the Pass 2 machine words.
+- Assembly that reports errors produces no object file.
+- Parser, Pass 1, Pass 2, symbol resolution, `SET`, comments, 24-bit validation, and unused-label warnings are unchanged.
+- Code compiles cleanly under the strict C89 flags.

@@ -27,7 +27,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 **Stage 3 — Pass 2 (`pass2`)**
 - Walks `Program[]` again and generates machine words.
 - Resolves symbolic operands through `SYMTAB`, flags undefined labels.
-- Computes branch offsets and emits output.
+- Computes branch offsets, checks the signed 24-bit operand range, and emits a human-readable dump to stdout (no file output yet).
 
 ## 4. Data Structures
 **`struct Instruction` / `OPTAB[]`**
@@ -65,26 +65,43 @@ Persistent project context to reduce repeated explanation in future sessions.
 - `strtol(s, &endptr, 0)` with base 0 auto-detects decimal, hex (`0x`), and octal (`0`).
 - Malformed numeric-looking operands are a Stage 1 fatal error.
 
+**Operand range**
+- Instruction operands are signed 24-bit: `-8388608..8388607`.
+- The resolved operand (after branch adjustment) is range-checked before encoding; out-of-range is a fatal error and emits no word.
+- `SET` values and `data` words are not subject to this 24-bit check.
+
+**Comments**
+- A `;` starts a comment; everything from it to end of line is ignored.
+- A comment-only line behaves like a blank line and never advances `LC`.
+
+**`SET` label requirement**
+- `SET` must have a label on the same line; `SET 25` is a Stage 1 parser error.
+
+**Command-line input**
+- `asm <file>` reads a source file line by line with `fgets` and feeds each line to `parse_line`.
+- `asm --test` runs the built-in regression suite.
+- File-open and read errors are reported and cause a non-zero exit code.
+
 ## 6. Current Implementation Status
-- Parser: implemented (label, mnemonic, operand count, numeric validation, trailing text).
-- Pass 1: implemented (LC assignment, label registration, duplicate detection).
-- `SYMTAB`: implemented.
-- Pass 2: **basic numeric encoding only** — currently re-runs `strtol` on operand text; does not yet resolve symbols, compute branch offsets, flag undefined labels, or write `.o`/`.lst` files.
-- `main()` currently runs a hard-coded test harness of source lines; file reading is not yet wired in.
-- Known redundancy: Pass 2 has an `inst == NULL` check that parser validation already guarantees is unreachable.
+- Parser: implemented — label syntax, mnemonic/`OPTAB`, operand count, numeric syntax, trailing text, comments (`;`), and `SET`-requires-a-label.
+- Pass 1: implemented — LC assignment, label registration, duplicate detection, and `SET` value assignment with zero LC growth.
+- Pass 2: implemented — numeric encoding, `SYMTAB` resolution, undefined-label errors, signed 24-bit operand range check, and PC-relative branch offsets. Emits a human-readable dump to stdout.
+- Unused-label warnings: implemented (non-fatal, printed after a successful Pass 2).
+- Input: real `.asm` files via command line (`asm <file>`), read line by line with `fgets`; `asm --test` runs the built-in regression suite.
+- The redundant Pass 2 `inst == NULL` check has been removed; Pass 2 relies on the parser invariant that `has_instruction` implies a valid mnemonic.
+- Not yet implemented: `.o` object-file output and `.lst` listing output (no words are written to disk yet).
 
 ## 7. Important Invariants
 - C89 build must stay warning-free under the strict flags.
 - Parser owns all syntax errors; Pass 1 owns duplicate labels; Pass 2 owns undefined labels and codegen.
 - `error_count > 0` aborts binary/code emission.
-- `LC` increments only for instructions and `data` words, never for labels or `SET`.
+- Unused labels are warnings only and never increment `error_count`.
+- `LC` increments only for instructions and `data` words, never for labels, `SET`, or comments.
 - Optimize for correctness and clarity first; the marker may ask for deep explanation of the code.
 
 ## 8. Remaining Assembler Work
-- Complete Pass 2 symbol resolution (current task).
-- Apply branch offset rule `Target - (LC + 1)` for PC-relative instructions.
-- Implement `SET` handling (assign value, no `LC` growth) and verify.
-- Report undefined labels and unused-label warnings.
-- Wire up file input (`fgets`) and outputs: binary `.o` (opened `"wb"`) and listing `.lst`.
-- Verify against `test1.asm`–`test4.asm` from the spec; add tests and a `claims` file per submission requirements.
-- Support the required `mul`/`div` opcodes (already in OPTAB; verify encoding).
+- Implement `.o` object-file output (current task). See `CURRENT_TASK.md`.
+- Implement `.lst` listing output (branch-target reverse label lookup per ADR §4C).
+- Verify against `test1.asm`–`test4.asm` from the spec; add test assembly files (`.asm`/`.log`/`.lst`) and a `claims` file per submission requirements.
+- `mul`/`div` are already in `OPTAB`; verify their encoding and add coverage.
+- Emulator (`emu.c`) is separate work and not started here.
