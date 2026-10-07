@@ -2,6 +2,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
+
+#define MAX_SYMBOLS 1000
+#define MAX_LINES 2000
+#define MAX_LABEL_LEN 31
 
 struct Instruction {
     char mnemonic[8];
@@ -27,7 +33,7 @@ struct Symbol {
     int used;
 };
 
-static struct Symbol SYMTAB[1000];
+static struct Symbol SYMTAB[MAX_SYMBOLS];
 static int symtab_count = 0;
 
 struct ParsedLine {
@@ -41,8 +47,20 @@ struct ParsedLine {
     int is_directive;
 };
 
-static struct ParsedLine program[2000];
+static struct ParsedLine program[MAX_LINES];
 static int total_lines = 0;
+
+/* Pending symbolic SET references, resolved after Pass 1 */
+struct SetRef {
+    int label_index;      /* SYMTAB index of the SET label */
+    int line_number;
+    char target[32];      /* referenced symbol name */
+};
+
+static struct SetRef pending_sets[MAX_LINES];
+static int pending_set_count = 0;
+static int set_pending[MAX_SYMBOLS];
+static int line_limit_reported = 0;
 
 /* Remove leading and trailing whitespace */
 static void trim(char *s)
@@ -105,7 +123,46 @@ static int is_valid_number(const char *s)
     return (*endptr == '\0' && s[0] != '\0');
 }
 
-/* Add a new symbol to SYMTAB; returns 0 on duplicate */
+/* Parse a full 32-bit data/SET value; returns 1 on success.
+   A leading '-' denotes a signed 32-bit value in the range
+   -2147483648..-1; all other input is an unsigned 32-bit word. */
+static int parse_word_value(const char *s, unsigned long *value)
+{
+    const char *p = s;
+    char *endptr;
+    int negative = 0;
+
+    while (isspace((unsigned char)*p)) {
+        p++;
+    }
+    if (*p == '-') {
+        negative = 1;
+        p++;
+    }
+
+    errno = 0;
+    *value = strtoul(p, &endptr, 0);
+    if (endptr == p || *endptr != '\0' || errno == ERANGE) {
+        return 0;
+    }
+
+    if (negative) {
+        if (*value > 2147483648UL) {
+            return 0; /* below -2147483648 */
+        }
+        *value = (unsigned long)((0UL - *value) & 0xFFFFFFFFUL);
+        return 1;
+    }
+
+#if ULONG_MAX > 0xFFFFFFFFUL
+    if (*value > 0xFFFFFFFFUL) {
+        return 0;
+    }
+#endif
+    return 1;
+}
+
+/* Add a new symbol to SYMTAB. Returns 1 = added, 0 = duplicate, -1 = full */
 static int add_symbol(const char *name, int address)
 {
     int i;
@@ -114,36 +171,44 @@ static int add_symbol(const char *name, int address)
             return 0;
         }
     }
-    if (symtab_count < 1000) {
-        strncpy(SYMTAB[symtab_count].name, name, 31);
-        SYMTAB[symtab_count].name[31] = '\0';
+    if (symtab_count < MAX_SYMBOLS) {
+        strncpy(SYMTAB[symtab_count].name, name, MAX_LABEL_LEN);
+        SYMTAB[symtab_count].name[MAX_LABEL_LEN] = '\0';
         SYMTAB[symtab_count].address = address;
         SYMTAB[symtab_count].used = 0;
         symtab_count++;
         return 1;
     }
-    return 0;
+    return -1;
 }
 
-/* Print the completed symbol table */
-static void print_symtab(void)
+/* Length of the operand token (second whitespace-delimited token) in a statement.
+   Used to tell an over-long operand apart from genuine trailing text. */
+static int operand_token_length(const char *stmt)
 {
-    int i;
-    printf("\n--- SYMBOL TABLE ---\n");
-    for (i = 0; i < symtab_count; i++) {
-        printf("%-10s -> address %d\n", SYMTAB[i].name, SYMTAB[i].address);
+    const char *p = stmt;
+    int len;
+
+    while (isspace((unsigned char)*p)) p++;
+    while (*p != '\0' && !isspace((unsigned char)*p)) p++;
+    while (isspace((unsigned char)*p)) p++;
+    len = 0;
+    while (p[len] != '\0' && !isspace((unsigned char)p[len])) {
+        len++;
     }
+    return len;
 }
 
 /* Stage 1: Parse one source line into a ParsedLine, validating all syntax */
 static void parse_line(int line_num, const char *line, struct ParsedLine *pl)
 {
-    char line_copy[256];
+    char line_copy[1024];
     char extra[32];
     char *comment;
     char *colon;
     char *stmt_ptr;
     int num_scanned;
+    int label_len;
     const struct Instruction *inst;
 
     memset(pl, 0, sizeof(*pl));
@@ -167,12 +232,19 @@ static void parse_line(int line_num, const char *line, struct ParsedLine *pl)
     /* --- Label extraction --- */
     colon = strchr(line_copy, ':');
     if (colon != NULL) {
-        *colon = '\0';
-        strncpy(pl->label, line_copy, sizeof(pl->label) - 1);
-        pl->label[sizeof(pl->label) - 1] = '\0';
-        trim(pl->label);
-
-        if (pl->label[0] != '\0') {
+        label_len = (int)(colon - line_copy);
+        while (label_len > 0 &&
+               (line_copy[label_len - 1] == ' ' || line_copy[label_len - 1] == '\t')) {
+            label_len--;
+        }
+        if (label_len > 0) {
+            if (label_len > MAX_LABEL_LEN) {
+                printf("Line %d: Error: Label too long\n", line_num);
+                error_count++;
+                return;
+            }
+            strncpy(pl->label, line_copy, (size_t)label_len);
+            pl->label[label_len] = '\0';
             if (!is_valid_label(pl->label)) {
                 printf("Line %d: Error: Invalid label name '%s'\n", line_num, pl->label);
                 error_count++;
@@ -194,9 +266,15 @@ static void parse_line(int line_num, const char *line, struct ParsedLine *pl)
     extra[0] = '\0';
     num_scanned = sscanf(stmt_ptr, "%9s %31s %31s", pl->mnemonic, pl->operand, extra);
 
-    /* Check for trailing garbage (third token) */
+    /* Check for trailing garbage (third token). An operand token longer than
+       MAX_LABEL_LEN is a label reference that does not fit; report it as an
+       over-long label instead of silently truncating it. */
     if (num_scanned == 3) {
-        printf("Line %d: Error: Extra text after operand '%s'\n", line_num, pl->operand);
+        if (operand_token_length(stmt_ptr) > MAX_LABEL_LEN) {
+            printf("Line %d: Error: Label too long\n", line_num);
+        } else {
+            printf("Line %d: Error: Extra text after operand '%s'\n", line_num, pl->operand);
+        }
         error_count++;
         return;
     }
@@ -250,21 +328,59 @@ static void pass1(void)
     int i;
     int is_set;
     int address;
+    int rc;
+    unsigned long value;
 
     for (i = 0; i < total_lines; i++) {
         program[i].location_counter = lc;
         is_set = (strcmp(program[i].mnemonic, "SET") == 0);
 
         if (program[i].has_label) {
-            if (is_set) {
-                /* SET stores its value directly in place of the label address */
-                address = (int)strtol(program[i].operand, NULL, 0);
+            if (is_set && program[i].operand[0] != '\0'
+                && !looks_numeric(program[i].operand)) {
+                /* Symbolic SET: register a placeholder and resolve after Pass 1 */
+                rc = add_symbol(program[i].label, 0);
+                if (rc == 1) {
+                    pending_sets[pending_set_count].label_index = symtab_count - 1;
+                    pending_sets[pending_set_count].line_number = program[i].line_number;
+                    strncpy(pending_sets[pending_set_count].target,
+                            program[i].operand, MAX_LABEL_LEN);
+                    pending_sets[pending_set_count].target[MAX_LABEL_LEN] = '\0';
+                    set_pending[symtab_count - 1] = 1;
+                    pending_set_count++;
+                } else if (rc == 0) {
+                    printf("Line %d: Error: Duplicate label '%s'\n",
+                           program[i].line_number, program[i].label);
+                    error_count++;
+                } else {
+                    printf("Line %d: Error: Symbol table full, cannot add '%s'\n",
+                           program[i].line_number, program[i].label);
+                    error_count++;
+                }
             } else {
-                address = lc;
-            }
-            if (!add_symbol(program[i].label, address)) {
-                printf("Line %d: Error: Duplicate label '%s'\n", program[i].line_number, program[i].label);
-                error_count++;
+                if (is_set) {
+                    /* SET stores its value directly in place of the label address */
+                    if (!parse_word_value(program[i].operand, &value)) {
+                        printf("Line %d: Error: Invalid SET value '%s'\n",
+                               program[i].line_number, program[i].operand);
+                        error_count++;
+                        address = 0;
+                    } else {
+                        address = (int)(value & 0xFFFFFFFFUL);
+                    }
+                } else {
+                    address = lc;
+                }
+                rc = add_symbol(program[i].label, address);
+                if (rc == 0) {
+                    printf("Line %d: Error: Duplicate label '%s'\n",
+                           program[i].line_number, program[i].label);
+                    error_count++;
+                } else if (rc < 0) {
+                    printf("Line %d: Error: Symbol table full, cannot add '%s'\n",
+                           program[i].line_number, program[i].label);
+                    error_count++;
+                }
             }
         }
 
@@ -285,6 +401,65 @@ static int find_symbol(const char *name)
         }
     }
     return -1;
+}
+
+/* Find the first symbol defined at an address; returns index or -1 */
+static int find_label_at_address(int address)
+{
+    int i;
+    for (i = 0; i < symtab_count; i++) {
+        if (SYMTAB[i].address == address) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+/* Resolve symbolic SET references once all labels are known */
+static void resolve_symbolic_sets(void)
+{
+    int k;
+    int target;
+    int changed;
+
+    changed = 1;
+    while (changed) {
+        changed = 0;
+        for (k = 0; k < pending_set_count; k++) {
+            if (pending_sets[k].label_index < 0) {
+                continue;
+            }
+            target = find_symbol(pending_sets[k].target);
+            if (target < 0) {
+                continue; /* undefined, reported below */
+            }
+            if (set_pending[target]) {
+                continue; /* target not resolved yet */
+            }
+            SYMTAB[pending_sets[k].label_index].address = SYMTAB[target].address;
+            SYMTAB[target].used = 1;
+            set_pending[pending_sets[k].label_index] = 0;
+            pending_sets[k].label_index = -1;
+            changed = 1;
+        }
+    }
+
+    for (k = 0; k < pending_set_count; k++) {
+        if (pending_sets[k].label_index < 0) {
+            continue;
+        }
+        target = find_symbol(pending_sets[k].target);
+        if (target < 0) {
+            printf("Line %d: Error: Undefined label '%s' in SET\n",
+                   pending_sets[k].line_number, pending_sets[k].target);
+        } else {
+            printf("Line %d: Error: Circular SET reference for '%s'\n",
+                   pending_sets[k].line_number,
+                   SYMTAB[pending_sets[k].label_index].name);
+        }
+        error_count++;
+    }
+    pending_set_count = 0;
 }
 
 /* PC-relative instructions: call, brz, brlz, br (opcodes 13, 15, 16, 17) */
@@ -314,6 +489,28 @@ static int resolve_operand(const struct ParsedLine *pl, long *value)
     return 1;
 }
 
+/* Resolve a data operand to a full 32-bit value */
+static int resolve_data_operand(const struct ParsedLine *pl, unsigned long *value)
+{
+    int idx;
+
+    if (pl->operand[0] != '\0' && !looks_numeric(pl->operand)) {
+        idx = find_symbol(pl->operand);
+        if (idx < 0) {
+            printf("Line %d: Error: Undefined label '%s'\n", pl->line_number, pl->operand);
+            error_count++;
+            return 0;
+        }
+        SYMTAB[idx].used = 1;
+        *value = (unsigned long)(unsigned int)SYMTAB[idx].address;
+    } else if (!parse_word_value(pl->operand, value)) {
+        printf("Line %d: Error: Invalid data value '%s'\n", pl->line_number, pl->operand);
+        error_count++;
+        return 0;
+    }
+    return 1;
+}
+
 /* Write one 32-bit machine word to the object file as little-endian bytes */
 static int write_object_word(FILE *out, unsigned long word)
 {
@@ -334,16 +531,74 @@ static int write_object_word(FILE *out, unsigned long word)
     return 1;
 }
 
+/* Write a label-only row to the listing file */
+static void write_listing_label(FILE *lst, int address, const char *name)
+{
+    if (lst == NULL) {
+        return;
+    }
+    fprintf(lst, "%08X          %s:\n", (unsigned int)address, name);
+}
+
+/* Write a machine-word row to the listing file; operand may be NULL */
+static void write_listing_word(FILE *lst, int address, unsigned long word,
+                               const char *mnemonic, const char *operand)
+{
+    if (lst == NULL) {
+        return;
+    }
+    fprintf(lst, "%08X %08X %s", (unsigned int)address, (unsigned int)word, mnemonic);
+    if (operand != NULL) {
+        fprintf(lst, " %s", operand);
+    }
+    fprintf(lst, "\n");
+}
+
+/* Choose the operand text shown for a PC-relative branch in the listing:
+   a symbolic source operand is kept as written; a numeric offset is resolved
+   to a label at its target address when one exists. */
+static const char *branch_listing_operand(const struct ParsedLine *pl, long offset)
+{
+    int target;
+    int idx;
+
+    if (pl->operand[0] != '\0' && !looks_numeric(pl->operand)) {
+        return pl->operand;
+    }
+
+    target = (int)(offset + (long)(pl->location_counter + 1));
+    idx = find_label_at_address(target);
+    if (idx >= 0) {
+        return SYMTAB[idx].name;
+    }
+    return pl->operand;
+}
+
 /* Pass 2: Generate machine code from ParsedLine records */
-static void pass2(FILE *obj)
+static void pass2(FILE *obj, FILE *lst)
 {
     int i;
     long operand;
-    long word;
+    unsigned long word;
+    unsigned long uword;
+    int label_index;
+    const char *disp_operand;
     const struct Instruction *inst;
 
-    printf("\n--- PASS 2 OUTPUT ---\n");
     for (i = 0; i < total_lines; i++) {
+        if (program[i].has_label) {
+            if (strcmp(program[i].mnemonic, "SET") == 0) {
+                label_index = find_symbol(program[i].label);
+                if (label_index >= 0) {
+                    write_listing_label(lst, SYMTAB[label_index].address,
+                                        program[i].label);
+                }
+            } else {
+                write_listing_label(lst, program[i].location_counter,
+                                    program[i].label);
+            }
+        }
+
         if (!program[i].has_instruction) {
             continue;
         }
@@ -356,17 +611,14 @@ static void pass2(FILE *obj)
         }
 
         if (program[i].is_directive && strcmp(program[i].mnemonic, "data") == 0) {
-            if (!resolve_operand(&program[i], &operand)) {
+            if (!resolve_data_operand(&program[i], &uword)) {
                 printf("\nPass 2 aborted due to undefined symbol(s).\n");
                 return;
             }
-            word = (long)(operand & 0xFFFFFFFFL);
-            printf("LC %-2d | %08lX | Line %d: %s %s\n",
-                   program[i].location_counter,
-                   (unsigned long)word,
-                   program[i].line_number,
-                   program[i].mnemonic,
-                   program[i].operand);
+            word = uword & 0xFFFFFFFFUL;
+            write_listing_word(lst, program[i].location_counter,
+                               (unsigned long)word, program[i].mnemonic,
+                               program[i].operand);
             if (!write_object_word(obj, (unsigned long)word)) {
                 return;
             }
@@ -378,7 +630,9 @@ static void pass2(FILE *obj)
                 printf("\nPass 2 aborted due to undefined symbol(s).\n");
                 return;
             }
-            if (is_pc_relative(inst)) {
+            /* Symbolic branch operands are addresses; numeric ones are offsets */
+            if (is_pc_relative(inst) && program[i].operand[0] != '\0'
+                && !looks_numeric(program[i].operand)) {
                 operand = operand - (long)(program[i].location_counter + 1);
             }
         } else {
@@ -393,13 +647,21 @@ static void pass2(FILE *obj)
             continue;
         }
 
-        word = ((operand & 0xFFFFFFL) << 8) | (inst->opcode & 0xFF);
-        printf("LC %-2d | %08lX | Line %d: %s %s\n",
-               program[i].location_counter,
-               (unsigned long)word,
-               program[i].line_number,
-               program[i].mnemonic,
-               program[i].operand);
+        word = ((unsigned long)(operand & 0xFFFFFFL) << 8) |
+               (unsigned long)(inst->opcode & 0xFF);
+
+        disp_operand = NULL;
+        if (inst->requires_operand) {
+            if (is_pc_relative(inst)) {
+                disp_operand = branch_listing_operand(&program[i], operand);
+            } else {
+                disp_operand = program[i].operand;
+            }
+        }
+        write_listing_word(lst, program[i].location_counter,
+                           (unsigned long)word, program[i].mnemonic,
+                           disp_operand);
+
         if (!write_object_word(obj, (unsigned long)word)) {
             return;
         }
@@ -417,52 +679,45 @@ static void print_unused_warnings(void)
     }
 }
 
-/* Print all ParsedLine records stored in RAM */
-static void print_parsed_lines(void)
-{
-    int i;
-    printf("\n--- PARSED LINES (RAM) ---\n");
-    for (i = 0; i < total_lines; i++) {
-        printf("Line %d | LC %d | label: '%-6s' (has_label:%d) | mnemonic: '%-5s' | operand: '%-4s' (has_inst:%d, is_dir:%d)\n",
-               program[i].line_number,
-               program[i].location_counter,
-               program[i].label,
-               program[i].has_label,
-               program[i].mnemonic,
-               program[i].operand,
-               program[i].has_instruction,
-               program[i].is_directive);
-    }
-}
-
-/* Reset global state so multiple test programs can run in sequence */
+/* Reset global state before assembling a source file */
 static void reset_program(void)
 {
     total_lines = 0;
     symtab_count = 0;
     error_count = 0;
+    pending_set_count = 0;
+    line_limit_reported = 0;
+    memset(set_pending, 0, sizeof(set_pending));
 }
 
 /* Parse one source line and append it to the parsed program */
 static void add_source_line(int line_num, const char *line)
 {
+    if (total_lines >= MAX_LINES) {
+        if (!line_limit_reported) {
+            printf("Line %d: Error: too many source lines (max %d)\n",
+                   line_num, MAX_LINES);
+            line_limit_reported = 1;
+        }
+        error_count++;
+        return;
+    }
     parse_line(line_num, line, &program[total_lines]);
     total_lines++;
 }
 
-/* Run Pass 1, report state, then Pass 2 and unused-label warnings */
-static void run_passes(FILE *obj)
+/* Run Pass 1, then Pass 2 and unused-label warnings */
+static void run_passes(FILE *obj, FILE *lst)
 {
     printf("\nSyntax errors: %d\n", error_count);
 
     /* Pass 1 */
     pass1();
-    print_parsed_lines();
-    print_symtab();
+    resolve_symbolic_sets();
 
     /* Pass 2 (only if no errors) */
     if (error_count == 0) {
-        pass2(obj);
+        pass2(obj, lst);
         if (error_count == 0) {
             print_unused_warnings();
         }
@@ -471,23 +726,8 @@ static void run_passes(FILE *obj)
     }
 }
 
-/* Minimal temporary harness: parse, Pass 1, and Pass 2 for one test program */
-static void run_test(const char *title, const char **source, int count)
-{
-    int i;
-
-    reset_program();
-    printf("\n=== %s ===\n", title);
-
-    for (i = 0; i < count; i++) {
-        add_source_line(i + 1, source[i]);
-    }
-
-    run_passes(NULL);
-}
-
-/* Derive the object file name by replacing the source extension with ".o" */
-static void make_object_name(const char *src, char *dst, int size)
+/* Derive an output file name by replacing the source extension with ext */
+static void make_output_name(const char *src, const char *ext, char *dst, int size)
 {
     const char *p;
     const char *dot = NULL;
@@ -500,12 +740,43 @@ static void make_object_name(const char *src, char *dst, int size)
     }
 
     len = (dot != NULL) ? (int)(dot - src) : (int)strlen(src);
-    if (len > size - 3) {
-        len = size - 3;
+    if (len > size - 1 - (int)strlen(ext)) {
+        len = size - 1 - (int)strlen(ext);
     }
     strncpy(dst, src, len);
     dst[len] = '\0';
-    strcat(dst, ".o");
+    strcat(dst, ext);
+}
+
+/* Read one source line, treating LF, CRLF and CR as line endings.
+   Returns 1 if a line was read, 0 at end of file. Sets *too_long if the
+   physical line did not fit in buf. */
+static int read_source_line(FILE *fp, char *buf, int size, int *too_long)
+{
+    int c;
+    int len = 0;
+
+    *too_long = 0;
+    c = fgetc(fp);
+    if (c == EOF) {
+        return 0;
+    }
+    while (c != EOF && c != '\n' && c != '\r') {
+        if (len < size - 1) {
+            buf[len++] = (char)c;
+        } else {
+            *too_long = 1;
+        }
+        c = fgetc(fp);
+    }
+    buf[len] = '\0';
+    if (c == '\r') {
+        c = fgetc(fp);
+        if (c != '\n' && c != EOF) {
+            ungetc(c, fp);
+        }
+    }
+    return 1;
 }
 
 /* Assemble a source file: read line by line and feed the existing parser */
@@ -513,9 +784,12 @@ static int assemble_file(const char *filename)
 {
     FILE *fp;
     FILE *obj;
-    char line[256];
+    FILE *lst;
+    char line[1024];
     char objname[260];
+    char lstname[260];
     int line_num = 0;
+    int too_long;
 
     fp = fopen(filename, "r");
     if (fp == NULL) {
@@ -526,8 +800,13 @@ static int assemble_file(const char *filename)
     reset_program();
     printf("\n=== FILE: %s ===\n", filename);
 
-    while (fgets(line, sizeof(line), fp) != NULL) {
+    while (read_source_line(fp, line, (int)sizeof(line), &too_long)) {
         line_num++;
+        if (too_long) {
+            printf("Line %d: Error: source line too long\n", line_num);
+            error_count++;
+            continue;
+        }
         add_source_line(line_num, line);
     }
 
@@ -537,7 +816,8 @@ static int assemble_file(const char *filename)
     }
     fclose(fp);
 
-    make_object_name(filename, objname, (int)sizeof(objname));
+    make_output_name(filename, ".o", objname, (int)sizeof(objname));
+    make_output_name(filename, ".lst", lstname, (int)sizeof(lstname));
 
     obj = fopen(objname, "wb");
     if (obj == NULL) {
@@ -545,151 +825,41 @@ static int assemble_file(const char *filename)
         return 0;
     }
 
-    run_passes(obj);
+    lst = fopen(lstname, "w");
+    if (lst == NULL) {
+        printf("Error: Cannot open listing file '%s'\n", lstname);
+        fclose(obj);
+        remove(objname);
+        return 0;
+    }
+
+    run_passes(obj, lst);
 
     if (fclose(obj) != 0) {
         printf("Error: Failed writing object file '%s'\n", objname);
         error_count++;
     }
+    if (fclose(lst) != 0) {
+        printf("Error: Failed writing listing file '%s'\n", lstname);
+        error_count++;
+    }
 
     if (error_count != 0) {
         remove(objname);
-        printf("Object file not produced due to errors.\n");
+        remove(lstname);
+        printf("Output files not produced due to errors.\n");
         return 0;
     }
 
     printf("Object file '%s' written.\n", objname);
+    printf("Listing file '%s' written.\n", lstname);
     return 1;
-}
-
-/* Built-in regression tests (run with: asm --test) */
-static void run_all_tests(void)
-{
-    const char *error_source[6];
-    const char *resolve_source[11];
-    const char *undefined_source[2];
-    const char *set_source[3];
-    const char *set_multi_source[6];
-    const char *set_nolabel_source[2];
-    const char *comment_source[5];
-    const char *range_ok_source[3];
-    const char *range_bad_source[3];
-    const char *range_sym_source[3];
-    const char *unused_normal_source[4];
-    const char *used_normal_source[3];
-    const char *unused_set_source[2];
-    const char *used_set_source[3];
-
-    /* Test 2 error cases */
-    error_source[0] = "fibble";
-    error_source[1] = "0def: ldc 1";
-    error_source[2] = "ldc";
-    error_source[3] = "add 5";
-    error_source[4] = "ldc 5, 6";
-    error_source[5] = "ldc 08ge";
-
-    /* Symbol resolution cases: numeric, backward/forward refs, branches */
-    resolve_source[0]  = "ldc 5";
-    resolve_source[1]  = "ldc -5";
-    resolve_source[2]  = "ldc 0x10";
-    resolve_source[3]  = "back: ldc 3";
-    resolve_source[4]  = "ldc back";
-    resolve_source[5]  = "ldc fwd";
-    resolve_source[6]  = "br fwdbr";
-    resolve_source[7]  = "loop: br loop";
-    resolve_source[8]  = "add";
-    resolve_source[9]  = "fwd: data 42";
-    resolve_source[10] = "fwdbr: HALT";
-
-    /* Undefined label case */
-    undefined_source[0] = "ldc missing";
-    undefined_source[1] = "HALT";
-
-    /* Basic SET: value must not consume a word of memory */
-    set_source[0] = "value: SET 25";
-    set_source[1] = "ldc value";
-    set_source[2] = "HALT";
-
-    /* Multiple SET symbols together with a normal label */
-    set_multi_source[0] = "a: SET 10";
-    set_multi_source[1] = "b: SET 20";
-    set_multi_source[2] = "start: ldc a";
-    set_multi_source[3] = "ldc b";
-    set_multi_source[4] = "add";
-    set_multi_source[5] = "HALT";
-
-    /* SET without a label is a parser error; valid form still parses */
-    set_nolabel_source[0] = "SET 25";
-    set_nolabel_source[1] = "value: SET 25";
-
-    /* Comments: full-line, indented, after operand, after labelled instruction */
-    comment_source[0] = "; full line comment";
-    comment_source[1] = "   ; indented comment";
-    comment_source[2] = "ldc 10 ; comment after instruction";
-    comment_source[3] = "loop: br loop ; branch back";
-    comment_source[4] = "HALT ; done";
-
-    /* Signed 24-bit operand range: boundary values accepted */
-    range_ok_source[0] = "ldc 8388607";
-    range_ok_source[1] = "ldc -8388608";
-    range_ok_source[2] = "HALT";
-
-    /* Signed 24-bit operand range: overflow rejected, valid line still encodes */
-    range_bad_source[0] = "ldc 8388608";
-    range_bad_source[1] = "ldc -8388609";
-    range_bad_source[2] = "ldc 5";
-
-    /* Symbolic operand resolving out of range is rejected */
-    range_sym_source[0] = "big: SET 8388608";
-    range_sym_source[1] = "ldc big";
-    range_sym_source[2] = "HALT";
-
-    /* Unused normal label: 'unused' warns, 'start' is referenced */
-    unused_normal_source[0] = "start: ldc 10";
-    unused_normal_source[1] = "HALT";
-    unused_normal_source[2] = "unused: data 50";
-    unused_normal_source[3] = "ldc start";
-
-    /* Referenced normal label: no warning */
-    used_normal_source[0] = "here: ldc 7";
-    used_normal_source[1] = "ldc here";
-    used_normal_source[2] = "HALT";
-
-    /* Unused SET label: warning */
-    unused_set_source[0] = "k: SET 5";
-    unused_set_source[1] = "HALT";
-
-    /* Referenced SET label: no warning */
-    used_set_source[0] = "value: SET 25";
-    used_set_source[1] = "ldc value";
-    used_set_source[2] = "HALT";
-
-    run_test("TEST A: PARSER ERRORS", error_source, 6);
-    run_test("TEST B: SYMBOL RESOLUTION", resolve_source, 11);
-    run_test("TEST C: UNDEFINED LABEL", undefined_source, 2);
-    run_test("TEST D: BASIC SET", set_source, 3);
-    run_test("TEST E: MULTIPLE SET + NORMAL LABEL", set_multi_source, 6);
-    run_test("TEST F: SET WITHOUT LABEL", set_nolabel_source, 2);
-    run_test("TEST G: COMMENTS", comment_source, 5);
-    run_test("TEST H: RANGE VALID BOUNDS", range_ok_source, 3);
-    run_test("TEST I: RANGE OVERFLOW", range_bad_source, 3);
-    run_test("TEST J: SYMBOLIC RANGE OVERFLOW", range_sym_source, 3);
-    run_test("TEST K: UNUSED NORMAL LABEL", unused_normal_source, 4);
-    run_test("TEST L: REFERENCED NORMAL LABEL", used_normal_source, 3);
-    run_test("TEST M: UNUSED SET LABEL", unused_set_source, 2);
-    run_test("TEST N: REFERENCED SET LABEL", used_set_source, 3);
 }
 
 int main(int argc, char *argv[])
 {
-    if (argc == 2 && strcmp(argv[1], "--test") == 0) {
-        run_all_tests();
-        return 0;
-    }
-
     if (argc != 2) {
         printf("Usage: %s <source.asm>\n", argv[0]);
-        printf("       %s --test    (run built-in regression tests)\n", argv[0]);
         return 1;
     }
 
