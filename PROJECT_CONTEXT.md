@@ -27,7 +27,8 @@ Persistent project context to reduce repeated explanation in future sessions.
 **Stage 3 — Pass 2 (`pass2`)**
 - Walks `Program[]` again and generates machine words.
 - Resolves symbolic operands through `SYMTAB`, flags undefined labels.
-- Computes branch offsets, checks the signed 24-bit operand range, and emits a human-readable dump to stdout (no file output yet).
+- Computes branch offsets and checks the signed 24-bit operand range.
+- Prints a human-readable dump to stdout, and (when a file is given) writes each word to the `.o` object file. No `.lst` output yet.
 
 ## 4. Data Structures
 **`struct Instruction` / `OPTAB[]`**
@@ -78,9 +79,10 @@ Persistent project context to reduce repeated explanation in future sessions.
 - `SET` must have a label on the same line; `SET 25` is a Stage 1 parser error.
 
 **Command-line input**
-- `asm <file>` reads a source file line by line with `fgets` and feeds each line to `parse_line`.
+- `asm <file>` reads a source file line by line with `fgets`, feeds each line to `parse_line`, and writes `<file>.o` (binary, little-endian 32-bit words).
 - `asm --test` runs the built-in regression suite.
 - File-open and read errors are reported and cause a non-zero exit code.
+- If assembly fails, the `.o` is removed so no misleading object file remains.
 
 ## 6. Current Implementation Status
 - Parser: implemented — label syntax, mnemonic/`OPTAB`, operand count, numeric syntax, trailing text, comments (`;`), and `SET`-requires-a-label.
@@ -89,7 +91,8 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Unused-label warnings: implemented (non-fatal, printed after a successful Pass 2).
 - Input: real `.asm` files via command line (`asm <file>`), read line by line with `fgets`; `asm --test` runs the built-in regression suite.
 - The redundant Pass 2 `inst == NULL` check has been removed; Pass 2 relies on the parser invariant that `has_instruction` implies a valid mnemonic.
-- Not yet implemented: `.o` object-file output and `.lst` listing output (no words are written to disk yet).
+- `.o` output: implemented — `asm <file>` writes `<file>.o` (binary `"wb"`, one 32-bit little-endian word per instruction/`data`; none for `SET`, labels, comments, blanks). File is removed on failure.
+- Not yet implemented: `.lst` listing output.
 
 ## 7. Important Invariants
 - C89 build must stay warning-free under the strict flags.
@@ -100,8 +103,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Optimize for correctness and clarity first; the marker may ask for deep explanation of the code.
 
 ## 8. Remaining Assembler Work
-- Implement `.o` object-file output (current task). See `CURRENT_TASK.md`.
-- Implement `.lst` listing output (branch-target reverse label lookup per ADR §4C).
+- Implement `.lst` listing output (current task; branch-target reverse label lookup per ADR §4C).
 - Verify against `test1.asm`–`test4.asm` from the spec; add test assembly files (`.asm`/`.log`/`.lst`) and a `claims` file per submission requirements.
 - `mul`/`div` are already in `OPTAB`; verify their encoding and add coverage.
 - Emulator (`emu.c`) is separate work and not started here.

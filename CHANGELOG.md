@@ -18,6 +18,7 @@ Record of completed assembler work (oldest first).
 - Unused-label warnings implemented (non-fatal; iterate `SYMTAB` where `used == 0`).
 - Real `.asm` source-file input via command line (`asm <file>`), read line by line with `fgets` and fed to `parse_line`; `asm --test` runs the built-in suite.
 - Built-in regression test suite (tests A–N) covering parser errors, symbol resolution, `SET`, comments, range validation, and warnings.
+- `.o` object-file output implemented: `asm <file>` writes `<file>.o` containing the same 32-bit machine words as Pass 2 (one word per instruction/`data`, none for `SET`/labels/comments), opened in binary mode (`"wb"`) as little-endian bytes. The file is removed if assembly fails.
 
 ## Next Step
-- Implement `.o` object-file output. See `CURRENT_TASK.md`.
+- Implement `.lst` listing output. See `CURRENT_TASK.md`.

@@ -314,8 +314,28 @@ static int resolve_operand(const struct ParsedLine *pl, long *value)
     return 1;
 }
 
+/* Write one 32-bit machine word to the object file as little-endian bytes */
+static int write_object_word(FILE *out, unsigned long word)
+{
+    unsigned char bytes[4];
+
+    if (out == NULL) {
+        return 1;
+    }
+    bytes[0] = (unsigned char)(word & 0xFF);
+    bytes[1] = (unsigned char)((word >> 8) & 0xFF);
+    bytes[2] = (unsigned char)((word >> 16) & 0xFF);
+    bytes[3] = (unsigned char)((word >> 24) & 0xFF);
+    if (fwrite(bytes, 1, 4, out) != 4) {
+        printf("Error: Failed writing object file\n");
+        error_count++;
+        return 0;
+    }
+    return 1;
+}
+
 /* Pass 2: Generate machine code from ParsedLine records */
-static void pass2(void)
+static void pass2(FILE *obj)
 {
     int i;
     long operand;
@@ -347,6 +367,9 @@ static void pass2(void)
                    program[i].line_number,
                    program[i].mnemonic,
                    program[i].operand);
+            if (!write_object_word(obj, (unsigned long)word)) {
+                return;
+            }
             continue;
         }
 
@@ -377,6 +400,9 @@ static void pass2(void)
                program[i].line_number,
                program[i].mnemonic,
                program[i].operand);
+        if (!write_object_word(obj, (unsigned long)word)) {
+            return;
+        }
     }
 }
 
@@ -425,7 +451,7 @@ static void add_source_line(int line_num, const char *line)
 }
 
 /* Run Pass 1, report state, then Pass 2 and unused-label warnings */
-static void run_passes(void)
+static void run_passes(FILE *obj)
 {
     printf("\nSyntax errors: %d\n", error_count);
 
@@ -436,7 +462,7 @@ static void run_passes(void)
 
     /* Pass 2 (only if no errors) */
     if (error_count == 0) {
-        pass2();
+        pass2(obj);
         if (error_count == 0) {
             print_unused_warnings();
         }
@@ -457,14 +483,38 @@ static void run_test(const char *title, const char **source, int count)
         add_source_line(i + 1, source[i]);
     }
 
-    run_passes();
+    run_passes(NULL);
+}
+
+/* Derive the object file name by replacing the source extension with ".o" */
+static void make_object_name(const char *src, char *dst, int size)
+{
+    const char *p;
+    const char *dot = NULL;
+    int len;
+
+    for (p = src; *p != '\0'; p++) {
+        if (*p == '.' || *p == '/' || *p == '\\') {
+            dot = (*p == '.') ? p : NULL;
+        }
+    }
+
+    len = (dot != NULL) ? (int)(dot - src) : (int)strlen(src);
+    if (len > size - 3) {
+        len = size - 3;
+    }
+    strncpy(dst, src, len);
+    dst[len] = '\0';
+    strcat(dst, ".o");
 }
 
 /* Assemble a source file: read line by line and feed the existing parser */
 static int assemble_file(const char *filename)
 {
     FILE *fp;
+    FILE *obj;
     char line[256];
+    char objname[260];
     int line_num = 0;
 
     fp = fopen(filename, "r");
@@ -487,8 +537,29 @@ static int assemble_file(const char *filename)
     }
     fclose(fp);
 
-    run_passes();
-    return (error_count == 0);
+    make_object_name(filename, objname, (int)sizeof(objname));
+
+    obj = fopen(objname, "wb");
+    if (obj == NULL) {
+        printf("Error: Cannot open object file '%s'\n", objname);
+        return 0;
+    }
+
+    run_passes(obj);
+
+    if (fclose(obj) != 0) {
+        printf("Error: Failed writing object file '%s'\n", objname);
+        error_count++;
+    }
+
+    if (error_count != 0) {
+        remove(objname);
+        printf("Object file not produced due to errors.\n");
+        return 0;
+    }
+
+    printf("Object file '%s' written.\n", objname);
+    return 1;
 }
 
 /* Built-in regression tests (run with: asm --test) */
