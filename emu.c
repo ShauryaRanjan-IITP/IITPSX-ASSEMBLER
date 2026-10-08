@@ -107,17 +107,21 @@ static int load_object(const char *filename)
     return count;
 }
 
-/* Phase 2: fetch the word at PC, increment PC, then decode opcode/operand.
-   No opcode semantics are applied here. */
-unsigned long fetch_decode(unsigned long *opcode, long *operand)
+/* Phase 2/6A: fetch the word at PC, increment PC, then decode opcode/operand.
+   Returns 1 on success or -1 if PC is out of bounds. No opcode semantics. */
+int fetch_decode(unsigned long *opcode, long *operand)
 {
     unsigned long word;
 
+    if (PC >= (unsigned long)MEM_SIZE) {
+        printf("Error: Program counter out of bounds\n");
+        return -1;
+    }
     word = memory[PC];
     PC = (PC + 1) & WORD_MASK;
     *opcode = word & 0xFFUL;
     *operand = signed24((word >> 8) & 0xFFFFFFUL);
-    return word;
+    return 1;
 }
 
 /* Execute one decoded instruction (Phases 3A-3B).
@@ -260,7 +264,10 @@ static int run(void)
     int status;
 
     for (;;) {
-        fetch_decode(&opcode, &operand);
+        status = fetch_decode(&opcode, &operand);
+        if (status != 1) {
+            return status;
+        }
         status = execute(opcode, operand);
         if (status != 1) {
             return status;
