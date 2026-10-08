@@ -38,10 +38,32 @@
 - `execute()` adds `ldnl`, `stnl`, `add`, `sub`, `shl`, `shr`, `adj`, `a2sp`, `sp2a`; `ldnl`/`stnl` reuse the `add32` address + `MEM_SIZE` bounds check; `shr` is arithmetic from raw bits.
 - Verified: positive/negative `ldnl`/`stnl` offsets, `add`/`sub`/`shl`/`adj` 32-bit wraparound, arithmetic `shr`, register-exchange order, bounds errors, and Phase 3A regression all pass.
 
+## Emulator Phase 3C — complete
+- `execute()` adds branches `brz`, `brlz`, `br`; the offset applies to the PC already incremented by `fetch_decode`, using `add32` for 32-bit wrap.
+- Verified: `br` positive/negative and PC underflow wrap, `brz` taken/not-taken, `brlz` taken for `0xFFFFFFFF`/`0x80000000` and not-taken for 0/positive, plus Phase 3A/3B regression.
+
+## Emulator Phase 3D — complete
+- `execute()` adds `call` (`B:=A; A:=PC; PC:=PC+offset`) and `return` (`PC:=A; A:=B`); `call` stores the post-fetch PC in `A` and applies the signed offset with `add32`.
+- Verified: `call` positive/negative offsets and PC wrap, stored `A` equals post-fetch PC, old `A` moved to `B`; `return` restores `PC` from `A` and `A` from `B` with `B` unchanged; call/return round-trip; Phase 3A–3C regression.
+
+## Emulator Phase 3E — complete
+- `execute()` adds `mul` (`A:=B*A`, low 32 bits via `mul32`) and `div` (`A:=B/A`, signed via `signed32`; `INT_MIN / -1` handled as `sub32(0, B)` to avoid signed overflow).
+- Division by zero intentionally not handled (`A` left unchanged) — deferred to Phase 3F.
+- Verified: mul/div sign combinations, 32-bit truncation/wrap, signed (not unsigned) division, `INT_MIN / -1`, Phase 3A–3D regression, and an assembled mul/div end-to-end program.
+
+## Emulator Phase 3F — complete
+- Division by zero (`div`, `A == 0`): reports `Error: Division by zero`, halts before any C division, returns error status.
+- Illegal/unimplemented opcode (`> 20`): `default` reports `Error: Illegal opcode <n>` and halts; `HALT` (18) remains valid.
+- Errors propagate `execute()` → `run()` → `main()` (non-zero exit). Verified: Phase 3A–3E regression, div-by-zero stop, illegal-opcode stop (direct, after a valid instruction, and via `run()`), valid `HALT`/opcodes, and end-to-end `.o` runs.
+
+## Emulator Phase 4 — complete
+- After normal `HALT`, the emulator prints the program's memory dump (`0..N-1`, `%08X %08X`) using the spec's address + 8-hex-word format; post-execution stores are visible. Runtime errors exit non-zero without a dump.
+- Ambiguities (the PDF does not specify them): dump range = loaded words; registers not printed; no dump on error.
+- Verified: dump contents/format via assembled e2e programs, `HALT` → success, div-by-zero/illegal → failure, Phase 1–3F regression, strict C89.
+
 ## Next
-- Emulator Phase 3C: branches (`br`, `brz`, `brlz`), `call`/`return`, `mul`/`div` (incl. division-by-zero), and illegal-opcode handling.
-- Produce submission test programs (`test01.asm` ...) plus `.log`, `.lst`, and the `claims` file.
-- Verify `mul`/`div` encoding and add coverage.
+- Write the required submission test programs (`test01.asm` ...) plus `.log`, `.lst`, and the `claims` file.
+- Assemble and execute the bubble-sort program; verify `mul`/`div` assembler encoding and add coverage.
 
 ## Branch rule (corrected)
 - Numeric branch operand = literal PC-relative offset, emitted as-is (no `(LC + 1)` subtraction). e.g. `br 7` encodes offset 7.

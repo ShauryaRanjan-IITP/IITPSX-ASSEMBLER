@@ -201,10 +201,52 @@ static int execute(unsigned long opcode, long operand)
         B = A;
         A = SP;
         break;
+    case 13:                    /* call offset: B := A; A := PC; PC := PC + offset */
+        B = A;
+        A = PC;
+        PC = add32(PC, (unsigned long)operand & WORD_MASK);
+        break;
+    case 14:                    /* return: PC := A; A := B */
+        PC = A;
+        A = B;
+        break;
+    case 15:                    /* brz offset: if A == 0 then PC := PC + offset */
+        if (A == 0) {
+            PC = add32(PC, (unsigned long)operand & WORD_MASK);
+        }
+        break;
+    case 16:                    /* brlz offset: if A < 0 then PC := PC + offset */
+        if (signed32(A) < 0) {
+            PC = add32(PC, (unsigned long)operand & WORD_MASK);
+        }
+        break;
+    case 17:                    /* br offset: PC := PC + offset */
+        PC = add32(PC, (unsigned long)operand & WORD_MASK);
+        break;
+    case 19: {                  /* mul: A := B * A (low 32 bits of product) */
+        A = mul32(B, A);
+        break;
+    }
+    case 20: {                  /* div: A := B / A (signed 32-bit) */
+        long dividend = signed32(B);
+        long divisor = signed32(A);
+
+        if (divisor == 0) {
+            printf("Error: Division by zero\n");
+            return -1;
+        }
+        if (divisor == -1) {
+            A = sub32(0UL, B);  /* -B, avoids INT_MIN / -1 signed overflow */
+        } else {
+            A = (unsigned long)(dividend / divisor) & WORD_MASK;
+        }
+        break;
+    }
     case 18:                    /* HALT */
         return 0;
     default:
-        break;                  /* other opcodes are not implemented yet */
+        printf("Error: Illegal opcode %lu\n", opcode);
+        return -1;
     }
     return 1;
 }
@@ -226,9 +268,21 @@ static int run(void)
     }
 }
 
+/* Phase 4: dump the program's memory after normal termination.
+   Spec format: an 8-hex-digit address followed by the 8-hex-digit word. */
+static void dump_memory(int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++) {
+        printf("%08lX %08lX\n", (unsigned long)i, memory[i] & WORD_MASK);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int words;
+    int status;
 
     if (argc != 2) {
         printf("Usage: %s <object.o>\n", argv[0]);
@@ -244,5 +298,9 @@ int main(int argc, char *argv[])
 
     printf("Loaded %d words from '%s'.\n", words, argv[1]);
 
-    return (run() < 0) ? 1 : 0;
+    status = run();
+    if (status == 0) {
+        dump_memory(words);
+    }
+    return (status < 0) ? 1 : 0;
 }

@@ -143,6 +143,8 @@ IITPSx instructions implicitly increment $PC$ by `1` **before** performing the i
 
 $$\text{Branch Offset} = \text{Target Address} - (LC + 1)$$
 
+This formula applies when the branch operand is a **symbolic** label (its address is the target). A **numeric** branch operand is already a PC-relative offset and is emitted as-is (e.g. `br 7` encodes offset `7`); `(LC + 1)` must not be subtracted from it.
+
 ### C. Operand Parsing & Resolution
 
 1. **Numeric Operands:** Converted using `strtol(operand, &endptr, 0)`. Passing base `0` automatically handles decimal, hexadecimal (`0x`), and octal (`0`) prefixes.
@@ -171,15 +173,16 @@ To satisfy test program requirements (`test2.asm`), Stage 1 does **not** halt on
 
 ## 6. Emulator Architecture (`emu.c`)
 
-* **State Representation:** 32-bit unsigned/signed integers for registers (`A`, `B`, `PC`, `SP`) and a 32-bit array for memory (`uint32_t memory[10000]`).
+* **State Representation:** ISO C89 has no `stdint.h`, so 32-bit CPU words use `unsigned long` (guaranteed at least 32 bits) masked to `0xFFFFFFFF`. Registers (`A`, `B`, `PC`, `SP`) and `memory[10000]` store raw 32-bit bit patterns; `signed32()`/`signed24()` interpret them as signed two's-complement, and `add32()`/`sub32()`/`mul32()` give wrapping 32-bit results. Reset state is `A=B=PC=SP=0`.
 
 * **Execution Loop Mechanics:**
   1. Fetch word at `memory[PC]`.
   2. Increment $PC$ by `1` ($PC = PC + 1$).
-  3. Decode `opcode = word & 0xFF` and `operand = (int32_t)word >> 8` (sign-extended).
+  3. Decode `opcode = word & 0xFF` and `operand = signed24(word >> 8)` (sign-extended).
   4. Execute state changes via a `switch(opcode)` block.
 
 * **Runtime Error Handling:**
   * **Division by Zero:** Executing `div` (opcode 20) when $A == 0$ reports a runtime error and halts execution.
+  * **Memory Out of Bounds:** `ldl`/`stl` addressing outside `0..MEM_SIZE-1` reports a runtime error and halts execution.
   * **Errant Program:** Fetching an opcode outside 0–20 reports an "Errant Program" runtime error and halts.
   * **Halting:** Opcode 18 (`HALT`) gracefully terminates the emulation loop.
