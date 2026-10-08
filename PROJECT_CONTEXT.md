@@ -10,7 +10,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 ## 2. Instruction Encoding
 - 32-bit word = 24-bit signed two's-complement operand in bits 31–8, 8-bit opcode in bits 7–0.
   `word = (operand << 8) | (opcode & 0xFF)`
-- `emu.c` fetch order is: fetch `memory[PC]`, then `PC = PC + 1`, then `opcode = word & 0xFF`, `operand = (int32_t)word >> 8` (sign-extended).
+- `emu.c` fetch order is: fetch `memory[PC]`, then `PC = PC + 1`, then `opcode = word & 0xFF`, `operand = signed24(word >> 8)` (sign-extended).
 
 ## 3. Pipeline: Parser → Pass 1 → Pass 2
 **Stage 1 — Parser (`parse_line`)**
@@ -28,7 +28,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Walks `Program[]` again and generates machine words.
 - Resolves symbolic operands through `SYMTAB`, flags undefined labels.
 - Computes branch offsets and checks the signed 24-bit operand range.
-- Prints a human-readable dump to stdout, and (when a file is given) writes each word to the `.o` object file. No `.lst` output yet.
+- Prints a human-readable dump to stdout, and writes each word to the `.o` object file and the `.lst` listing file during the same loop (no second encoding).
 
 ## 4. Data Structures
 **`struct Instruction` / `OPTAB[]`**
@@ -59,7 +59,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Occupies 0 words; `LC` does not increment.
 
 **Branch offset**
-- For `br`, `brz`, `brlz`, `call` (PC-relative operands) the emitted operand is `Target - (LC + 1)`.
+- For `br`, `brz`, `brlz`, `call` (PC-relative): a *symbolic* operand resolves to its label address and emits `label_address - (LC + 1)`; a *numeric* operand is a literal PC-relative offset emitted as-is (e.g. `br 7` encodes offset 7).
 - For non-branch instructions, the label's value is used directly.
 
 **Numbers**
@@ -79,7 +79,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 - `SET` must have a label on the same line; `SET 25` is a Stage 1 parser error.
 
 **Command-line input**
-- `asm <file>` reads a source file line by line with `fgets`, feeds each line to `parse_line`, and writes `<file>.o` (binary, little-endian 32-bit words).
+- `asm <file>` reads a source file line by line with `fgets`, feeds each line to `parse_line`, and writes `<file>.o` (binary, little-endian 32-bit words) and `<file>.lst` (text listing).
 - `asm --test` runs the built-in regression suite.
 - File-open and read errors are reported and cause a non-zero exit code.
 - If assembly fails, the `.o` is removed so no misleading object file remains.
@@ -92,7 +92,13 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Input: real `.asm` files via command line (`asm <file>`), read line by line with `fgets`; `asm --test` runs the built-in regression suite.
 - The redundant Pass 2 `inst == NULL` check has been removed; Pass 2 relies on the parser invariant that `has_instruction` implies a valid mnemonic.
 - `.o` output: implemented — `asm <file>` writes `<file>.o` (binary `"wb"`, one 32-bit little-endian word per instruction/`data`; none for `SET`, labels, comments, blanks). File is removed on failure.
-- Not yet implemented: `.lst` listing output.
+- `.lst` output: implemented — written during Pass 2 (word rows `%08X %08X %s [operand]`, label rows `%08X          %s:`). Label + instruction lines emit a label row then a word row; `SET` emits a label row using its assigned value; non-branch operands show source text. For PC-relative branches, `branch_listing_operand` lists a symbolic operand as written and a numeric offset as a label when one sits at its target `(LC + 1) + offset`, else as the original numeric operand. Opened `"w"`; removed on failure. Reuses the computed word (no second encoding).
+- Emulator Phase 1 (`emu.c`): implemented — CPU state (`A`, `B`, `PC`, `SP`) and `memory[10000]` as raw 32-bit `unsigned long` words masked by `WORD_MASK` (0xFFFFFFFF); `signed32`/`signed24` interpret raw bits as signed two's-complement and `add32`/`sub32`/`mul32` give wrapping 32-bit results; binary little-endian `.o` loader from address 0; reset `A=B=PC=SP=0`.
+- Emulator Phase 2 (`emu.c`): implemented — `fetch_decode()` fetches `memory[PC]`, increments `PC = (PC + 1) & WORD_MASK`, and decodes `opcode = word & 0xFF` and `operand = signed24((word >> 8) & 0xFFFFFF)`. No opcode semantics yet.
+- Emulator Phase 3A (`emu.c`): implemented — execution loop `run()` plus `execute()` for `ldc` (`B:=A; A:=value`), `adc` (`A:=A+value`), `ldl` (`B:=A; A:=memory[SP+offset]`), `stl` (`memory[SP+offset]:=A; A:=B`), and `HALT`; `ldl`/`stl` addresses are computed with `add32` and bounds-checked against `MEM_SIZE`. Other opcodes are skipped for now.
+- Emulator Phase 3B (`emu.c`): implemented — `ldnl` (`A:=memory[A+offset]`), `stnl` (`memory[A+offset]:=B`), `add` (`A:=B+A`), `sub` (`A:=B-A`), `shl`/`shr` (`A:=B<<A`, `A:=B>>A`), `adj` (`SP:=SP+value`), `a2sp`, `sp2a`; `ldnl`/`stnl` reuse the `add32` address and `MEM_SIZE` bounds check. `shr` is arithmetic, computed from raw bits (no implementation-defined signed shift).
+- Assumption: the spec defines `shl`/`shr` as `B<<A` / `B>>A` but not for shift counts `>= 32`; counts are taken modulo 32 (matching x86 shift semantics), and this is flagged rather than silently fixed.
+- Not yet implemented: submission test programs/`claims`, `mul`/`div` verification coverage, emulator opcodes beyond 0–12 and 18 (branches, call/return, mul/div, illegal-opcode handling).
 
 ## 7. Important Invariants
 - C89 build must stay warning-free under the strict flags.
@@ -103,7 +109,7 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Optimize for correctness and clarity first; the marker may ask for deep explanation of the code.
 
 ## 8. Remaining Assembler Work
-- Implement `.lst` listing output (current task; branch-target reverse label lookup per ADR §4C).
-- Verify against `test1.asm`–`test4.asm` from the spec; add test assembly files (`.asm`/`.log`/`.lst`) and a `claims` file per submission requirements.
+- Verify against `test1.asm`–`test4.asm` from the spec; add submission test files (`.asm`/`.log`/`.lst`) and a `claims` file per submission requirements.
 - `mul`/`div` are already in `OPTAB`; verify their encoding and add coverage.
+- Branch rule (corrected): a numeric branch operand is a literal PC-relative offset; a symbolic branch operand is a label address converted to `label_address - (LC + 1)`.
 - Emulator (`emu.c`) is separate work and not started here.
