@@ -1,7 +1,7 @@
 # CURRENT_TASK.md
 
 ## Task
-**`.lst` listing output — implemented.**
+**Backend (assembler + emulator) complete, validated, and frozen.**
 
 ## Delivered
 - `<base>.lst` generated during Pass 2 alongside `<base>.o` (no extra pass).
@@ -13,13 +13,13 @@
 - Non-branch operands show the original source text.
 - For PC-relative branches, a symbolic operand is listed as written (`br start` → `br start`); a numeric offset is listed as a label if one sits at its target `(LC + 1) + offset`, otherwise as the original numeric operand.
 - The already-computed machine word is reused; no second encoding.
-- `.lst` opened `"w"`; `.o` stays `"wb"`; both removed if assembly fails.
+- `.lst` opened `"w"`; `.o` stays `"wb"`. On failure the `.o` is removed but the `.lst` is retained (it carries diagnostics).
 
 ## Verified
 - Strict C89 build warning-free under the project flags.
 - `asm --test` output unchanged, plus listing tests O/P/Q (all PASS).
 - Sample with label-only, label+instruction, `SET`, `data`, and branch cases yields correct `.lst`.
-- `.o` little-endian bytes unchanged; failed assembly leaves neither file.
+- `.o` little-endian bytes unchanged; failed assembly produces no `.o` (the `.lst` is retained with diagnostics).
 
 ## Emulator Phase 1 — complete
 - C89 32-bit representation in place: `WORD_MASK` (0xFFFFFFFF), `signed32`/`signed24`, and wrapping `add32`/`sub32`/`mul32`.
@@ -61,9 +61,16 @@
 - Ambiguities (the PDF does not specify them): dump range = loaded words; registers not printed; no dump on error.
 - Verified: dump contents/format via assembled e2e programs, `HALT` → success, div-by-zero/illegal → failure, Phase 1–3F regression, strict C89.
 
+## Backend finalization — complete (FROZEN)
+- Assembler complete: case-insensitive mnemonics/directives (`ci_equal`), labels still case-sensitive; diagnostics embedded in `.lst`; `.lst` retained on failure; `.o` still withheld on errors; unused-label warnings; infinite-loop detection intentionally not implemented; reference formatting/partial-object differences remain intentional.
+- Emulator complete: all 21 IITPSx instructions audited against the teacher PDF; strict C89; runtime errors for division by zero, illegal opcode, and PC out-of-bounds; memory dump on `HALT`; comment cleanup was comment-only.
+- Validation: official PDF `test1`–`test4`; supplied `Tests/test1`–`test7`; `bubble_sort.asm`; `mul`/`div`; division-by-zero; illegal opcode; PC out-of-bounds; lower/mixed-case mnemonics; `.lst` diagnostics.
+- Verdict: **PASS WITH NOTED COMPATIBILITY DIFFERENCES**.
+- The project overall is not fully submitted yet; the frontend remains a future phase and final packaging is in progress.
+
 ## Next
-- Write the required submission test programs (`test01.asm` ...) plus `.log`, `.lst`, and the `claims` file.
-- Assemble and execute the bubble-sort program; verify `mul`/`div` assembler encoding and add coverage.
+- Frontend phase (next project phase).
+- Deferred submission extras: PDF-named `test01.asm` files and the `claims` file.
 
 ## Branch rule (corrected)
 - Numeric branch operand = literal PC-relative offset, emitted as-is (no `(LC + 1)` subtraction). e.g. `br 7` encodes offset 7.

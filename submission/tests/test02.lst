@@ -1,0 +1,9 @@
+00000000          label:
+00000000          label:  Line 3: Error: Duplicate label 'label'
+00000001          Line 5: Error: Invalid numeric operand '08ge'
+00000001          Line 6: Error: Missing operand for 'ldc'
+00000001          Line 7: Error: Unexpected operand for 'add'
+00000001          Line 8: Error: Extra text after operand '5,'
+00000001          Line 9: Error: Invalid label name '0def'
+00000001          Line 10: Error: Unknown mnemonic 'fibble'
+00000001          Line 11: Error: Unknown mnemonic '0def'

@@ -35,16 +35,16 @@ Persistent project context to reduce repeated explanation in future sessions.
 - `{ char mnemonic[8]; int opcode; int requires_operand; }`
 - `data` has opcode `-1`; `SET` has opcode `-2`. Both require an operand.
 - Opcodes 0–20 map to the IITPSx instruction set (`mul`=19, `div`=20); `HALT`=18.
-- `find_instruction(name)` does a linear `strcmp` lookup and returns `NULL` if unknown.
+- `find_instruction(name)` does a case-insensitive linear lookup (mnemonics only) and returns `NULL` if unknown.
 
 **`struct Symbol` / `SYMTAB[]`**
-- `{ char name[32]; int address; int used; }`, capacity 1000.
+- `{ char name[32]; int address; int used; int line_index; }`, capacity 1000.
 - `used` tracks references (0 = defined but unused → warning; 1 = referenced).
 - `add_symbol` rejects duplicates and returns 0 on failure.
 
 **`struct ParsedLine` / `Program[]`**
-- `{ int line_number; int location_counter; char label[32]; char mnemonic[10]; char operand[32]; int has_label; int has_instruction; int is_directive; }`, capacity 2000.
-- `is_directive` is set for `data` and `SET`.
+- `{ int line_number; int location_counter; char label[32]; char mnemonic[10]; char operand[32]; int has_label; int has_instruction; int is_directive; char listing_operand[32]; int has_listing_operand; unsigned long word; int has_word; char diag[96]; }`, capacity 2000.
+- `is_directive` is set for `data` and `SET`. The trailing fields hold information for the deferred listing (chosen operand text, emitted word) and the per-line diagnostic.
 
 ## 5. Rules
 **Labels**
@@ -79,10 +79,10 @@ Persistent project context to reduce repeated explanation in future sessions.
 - `SET` must have a label on the same line; `SET 25` is a Stage 1 parser error.
 
 **Command-line input**
-- `asm <file>` reads a source file line by line with `fgets`, feeds each line to `parse_line`, and writes `<file>.o` (binary, little-endian 32-bit words) and `<file>.lst` (text listing).
-- `asm --test` runs the built-in regression suite.
+- `asm <file>` reads a source file and writes `<file>.o` (binary, little-endian 32-bit words) and `<file>.lst` (text listing).
+- Mnemonics and directives are case-insensitive; labels and operands remain case-sensitive.
 - File-open and read errors are reported and cause a non-zero exit code.
-- If assembly fails, the `.o` is removed so no misleading object file remains.
+- If assembly fails, the `.o` is removed but the `.lst` is kept so diagnostics are visible.
 
 ## 6. Current Implementation Status
 - Parser: implemented — label syntax, mnemonic/`OPTAB`, operand count, numeric syntax, trailing text, comments (`;`), and `SET`-requires-a-label.
@@ -103,7 +103,9 @@ Persistent project context to reduce repeated explanation in future sessions.
 - Emulator Phase 3E (`emu.c`): implemented — `mul` (`A:=B*A`, low 32 bits of the product via `mul32`, so no signed-overflow UB) and `div` (`A:=B/A`, signed via `signed32`; the `INT_MIN / -1` case is computed as `sub32(0, B)` to avoid signed overflow). Division by zero is intentionally not handled yet (`A` left unchanged) and is deferred.
 - Emulator Phase 3F (`emu.c`): implemented — `div` with `A == 0` reports `Error: Division by zero` and halts before any C division; any unimplemented opcode (> 20) reaches the `default` case, reports `Error: Illegal opcode <n>`, and halts. Both return `-1` from `execute()`; `run()` propagates it and `main()` returns a non-zero exit code. `HALT` (18) still returns the normal `0` status.
 - Emulator Phase 4 (`emu.c`): implemented — after normal termination (`HALT`), `dump_memory()` prints the program's memory (addresses `0..N-1`, where `N` = words loaded) as `%08X %08X` (8-hex address, 8-hex word), matching the spec's memory-dump format. Runtime errors (`div` by zero, illegal opcode) print the error and exit non-zero without a dump; registers are not printed.
-- Not yet implemented: submission test programs/`claims` and assembler `mul`/`div` encoding coverage.
+- Assembler finalization (`asm.c`): mnemonics/directives are case-insensitive via `ci_equal` (labels/operands stay case-sensitive); `.lst` diagnostics are embedded via `report()` (errors and unused-label warnings on their source line); the `.lst` is retained on failure while the `.o` is withheld; infinite-loop detection is intentionally not implemented.
+- Backend validation/freeze: all 21 IITPSx instructions audited against the teacher PDF; strict C89 warning-free; official PDF `test1`–`test4`, supplied `Tests/test1`–`test7`, and `bubble_sort.asm` validated; runtime errors (division by zero, illegal opcode, PC out-of-bounds) verified. Verdict: PASS WITH NOTED COMPATIBILITY DIFFERENCES. The backend is now frozen.
+- Not yet implemented: project frontend (future phase); deferred submission extras (`test01.asm` naming, `claims` file).
 
 ## 7. Important Invariants
 - C89 build must stay warning-free under the strict flags.
@@ -113,8 +115,8 @@ Persistent project context to reduce repeated explanation in future sessions.
 - `LC` increments only for instructions and `data` words, never for labels, `SET`, or comments.
 - Optimize for correctness and clarity first; the marker may ask for deep explanation of the code.
 
-## 8. Remaining Assembler Work
-- Verify against `test1.asm`–`test4.asm` from the spec; add submission test files (`.asm`/`.log`/`.lst`) and a `claims` file per submission requirements.
-- `mul`/`div` are already in `OPTAB`; verify their encoding and add coverage.
+## 8. Remaining Project Work
+- Backend validation complete (official PDF `test1`–`test4`, supplied `Tests/`, `bubble_sort.asm`, `mul`/`div`); the backend is frozen.
+- Deferred submission extras: PDF-named `test01.asm` files and the `claims` file.
+- Frontend work is the next project phase.
 - Branch rule (corrected): a numeric branch operand is a literal PC-relative offset; a symbolic branch operand is a label address converted to `label_address - (LC + 1)`.
-- Emulator (`emu.c`) is separate work and not started here.

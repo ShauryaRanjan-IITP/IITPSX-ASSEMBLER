@@ -1,6 +1,6 @@
 # CHANGELOG.md
 
-Record of completed assembler work (oldest first).
+Record of completed assembler and emulator work (oldest first).
 
 ## Completed
 - Parser implemented (`parse_line`) producing `struct ParsedLine` records in `Program[]`.
@@ -33,5 +33,13 @@ Record of completed assembler work (oldest first).
 - Emulator Phase 3F (`emu.c`): runtime error handling. `div` with `A == 0` now reports `Error: Division by zero` and halts before any C division (replacing the Phase 3E placeholder); an unimplemented opcode (`> 20`) hits `default`, reports `Error: Illegal opcode <n>`, and halts. Both return `-1` from `execute()`, propagated by `run()` and turned into a non-zero exit by `main()`; `HALT` (18) still returns the normal `0` status. Verified: strict C89 warning-free; focused tests cover division-by-zero stop (with `A` untouched), illegal opcode directly and after a valid instruction, `run()` propagation, valid `HALT`/opcodes, Phase 3A–3E regression, and end-to-end `.o` runs (div0 → exit 1, illegal opcode → exit 1, valid → exit 0).
 - Emulator Phase 4 (`emu.c`): memory dump after normal termination. `main()` calls `dump_memory(words)` only when `run()` returns `0` (HALT); it prints the program's memory at addresses `0..N-1` (`N` = words loaded) as `%08X %08X` (8-hex address, 8-hex value), matching the spec's documented memory-dump format ("an address followed by ... 32 bit values (as 8 hex characters)"). Post-execution stores are reflected; runtime errors (div by zero, illegal opcode) print the error and exit non-zero with no dump; registers are not printed. `execute()`/`run()` status meanings are unchanged. Verified: strict C89 warning-free; assembled e2e dump shows correct addresses/values including an `stl`-modified word, format matches `^[0-9A-F]{8} [0-9A-F]{8}$`, HALT → exit 0, div0/illegal → exit 1 without a dump, and the Phase 1–3F regression harness passes. Ambiguities not specified by the PDF (dump range, register output, error-time dump) are documented in `PROJECT_CONTEXT.md`.
 
+- Emulator PC bounds fix (`emu.c`): `fetch_decode()` validates `PC < MEM_SIZE` before `memory[PC]` and reports `Error: Program counter out of bounds` through the existing `-1` runtime-error path, preventing out-of-bounds reads for programs without `HALT`.
+- Assembler case-insensitive mnemonics (`asm.c`): `find_instruction()` and the `SET`/`data` directive checks use a case-insensitive comparator (`ci_equal`); labels and operands remain case-sensitive. Mixed/upper/lower mnemonics produce identical object code, and lowercase `halt` now assembles (supplied `Tests/test1`, `test5`, `test6` now match their reference `.o`).
+- Assembler diagnostics in `.lst` (`asm.c`): a `report()` helper records each parser/pass-1/pass-2 error and each unused-label warning on its `ParsedLine`; `pass2()` stores emitted words and a deferred `write_listing()` appends diagnostics to the matching source line. The `.lst` is retained when assembly fails; the `.o` is still not produced on errors (per ADR).
+- Emulator comment cleanup (`emu.c`): comments shortened and internal phase/tutorial wording removed; comment-only change, no logic altered.
+- Final backend validation: both programs build warning-free under the strict C89 flags. Official PDF `test1`–`test4`, supplied `Tests/test1`–`test7`, and `bubble_sort.asm` validated; `mul`/`div`, division by zero, illegal opcode, PC out-of-bounds, mixed/lowercase mnemonics, and `.lst` diagnostics verified. Verdict: PASS WITH NOTED COMPATIBILITY DIFFERENCES (reference `.lst` formatting, lenient partial-`.o` output, and infinite-loop warnings remain intentional differences; `shl`/`shr` counts >= 32 and `shr` signedness are PDF-unspecified). Backend frozen.
+
 ## Next Step
-- Produce submission test programs (`test01.asm` ...) with `.log`, `.lst`, and the `claims` file; verify `mul`/`div`. See `CURRENT_TASK.md`.
+- Backend (assembler + emulator) is complete and frozen. See `CURRENT_TASK.md`.
+- Frontend work is the next project phase.
+- Deferred submission extras: PDF-named `test01.asm` files and the `claims` file.
