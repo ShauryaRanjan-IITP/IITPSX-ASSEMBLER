@@ -1,0 +1,21 @@
+=== test12 : assembler ===
+Command: asm.exe test12.asm
+
+=== FILE: D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test12.asm ===
+
+Syntax errors: 0
+Line 5: Error: Undefined label 'missing_label'
+
+Pass 2 aborted due to undefined symbol(s).
+Object file not produced due to errors; listing written.
+Exit status: 1
+
+=== test12 : emulator ===
+Not run: assembly failed, so no object file (test12.o) was produced.
+
+=== verification ===
+Expected: assembly FAILS with an undefined-label diagnostic (essential marking
+item: "Diagnoses label errors (duplicate, missing, etc.)").
+Observed: Pass 1 is clean; Pass 2 reports "Line 5: Error: Undefined label
+'missing_label'"; the assembler exits with status 1 and produces no object file.
+Result: PASS (undefined-label detection demonstrated).

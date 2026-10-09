@@ -1,0 +1,40 @@
+=== test10 : assembler ===
+Command: asm.exe test10.asm
+
+=== FILE: D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test10.asm ===
+
+Syntax errors: 0
+Object file 'D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test10.o' written.
+Listing file 'D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test10.lst' written.
+Exit status: 0
+
+=== test10 : emulator ===
+Command: emu.exe test10.o
+Loaded 21 words from 'D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test10.o'.
+00000000 00100000
+00000001 0000000B
+00000002 00000100
+00000003 00000003
+00000004 00000500
+00000005 00000103
+00000006 00000102
+00000007 0000080F
+00000008 00000002
+00000009 00000102
+0000000A 00000013
+0000000B 00000003
+0000000C 00000102
+0000000D FFFFFF01
+0000000E 00000103
+0000000F FFFFF611
+00000010 00000002
+00000011 00001400
+00000012 00000005
+00000013 00000012
+00000014 00000078
+Exit status: 0
+
+=== verification ===
+Expected result = 120
+Observed result = 120 (address 00000014)
+Result: PASS

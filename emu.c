@@ -1,4 +1,10 @@
+/* SHAURYA RANJAN SINGH
+   Roll / User ID: 2501AI16
+   Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents. */
+
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 
 #define MEM_SIZE 10000
 #define WORD_MASK 0xFFFFFFFFUL
@@ -11,6 +17,18 @@ static unsigned long A;
 static unsigned long B;
 static unsigned long PC;
 static unsigned long SP;
+
+/* When set (via -r/--report), print the final register state after running. */
+static int report_state = 0;
+
+/* When set (via -n/--steps), stop after this many instructions (0 = run to
+   completion). step_index counts instructions executed so far. */
+static unsigned long step_limit = 0;
+static unsigned long step_index = 0;
+
+/* Highest address (exclusive) touched by a store, so the memory image can
+   include data written beyond the loaded program. */
+static unsigned long highest_written = 0;
 
 /* Low 32 bits of a raw word as signed two's complement. */
 long signed32(unsigned long raw)
@@ -150,6 +168,9 @@ static int execute(unsigned long opcode, long operand)
             return -1;
         }
         memory[addr] = A;
+        if (addr + 1 > highest_written) {
+            highest_written = addr + 1;
+        }
         A = B;
         break;
     case 4:                     /* ldnl offset: A := memory[A + offset] */
@@ -167,6 +188,9 @@ static int execute(unsigned long opcode, long operand)
             return -1;
         }
         memory[addr] = B;
+        if (addr + 1 > highest_written) {
+            highest_written = addr + 1;
+        }
         break;
     case 6:                     /* add: A := B + A */
         A = add32(B, A);
@@ -263,8 +287,12 @@ static int run(void)
             return status;
         }
         status = execute(opcode, operand);
+        step_index++;
         if (status != 1) {
             return status;
+        }
+        if (step_limit > 0 && step_index >= step_limit) {
+            return 2;
         }
     }
 }
@@ -281,26 +309,56 @@ static void dump_memory(int count)
 
 int main(int argc, char *argv[])
 {
+    const char *filename = NULL;
     int words;
     int status;
+    int i;
 
-    if (argc != 2) {
-        printf("Usage: %s <object.o>\n", argv[0]);
+    for (i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "-r") == 0 || strcmp(argv[i], "--report") == 0) {
+            report_state = 1;
+        } else if (strcmp(argv[i], "-n") == 0 || strcmp(argv[i], "--steps") == 0) {
+            if (i + 1 >= argc) {
+                printf("Usage: %s [-r] [-n count] <object.o>\n", argv[0]);
+                return 1;
+            }
+            step_limit = (unsigned long)strtoul(argv[i + 1], NULL, 10);
+            i++;
+        } else if (filename == NULL) {
+            filename = argv[i];
+        } else {
+            printf("Usage: %s [-r] [-n count] <object.o>\n", argv[0]);
+            return 1;
+        }
+    }
+
+    if (filename == NULL) {
+        printf("Usage: %s [-r] [-n count] <object.o>\n", argv[0]);
         return 1;
     }
 
     init_cpu();
 
-    words = load_object(argv[1]);
+    words = load_object(filename);
     if (words < 0) {
         return 1;
     }
 
-    printf("Loaded %d words from '%s'.\n", words, argv[1]);
+    printf("Loaded %d words from '%s'.\n", words, filename);
 
     status = run();
-    if (status == 0) {
-        dump_memory(words);
+    if (status == 0 || status == 2) {
+        int dump_count = words;
+        if (highest_written > (unsigned long)dump_count) {
+            dump_count = (int)highest_written;
+        }
+        dump_memory(dump_count);
+    }
+    if (step_limit > 0) {
+        printf("STATUS %s\n", status == 0 ? "HALTED" : (status == 2 ? "STEPPED" : "ERROR"));
+    }
+    if (report_state) {
+        printf("REG A=%08lX B=%08lX PC=%08lX SP=%08lX\n", A, B, PC, SP);
     }
     return (status < 0) ? 1 : 0;
 }

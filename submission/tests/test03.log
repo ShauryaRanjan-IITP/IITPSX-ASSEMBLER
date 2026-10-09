@@ -1,0 +1,20 @@
+=== test03 : assembler ===
+Command: asm.exe test03.asm
+
+=== FILE: test03.asm ===
+
+Syntax errors: 0
+Object file 'test03.o' written.
+Listing file 'test03.lst' written.
+
+Exit status: 0
+
+=== test03 : emulator ===
+Not run: test03.asm has no HALT and does not terminate normally, so an emulator
+run would not be meaningful.
+
+=== verification ===
+Expected: the SET directive assembles successfully, assigning the label a
+literal value rather than the location counter.
+Observed: 0 syntax errors; object and listing produced.
+Result: PASS (assembler).

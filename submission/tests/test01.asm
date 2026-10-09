@@ -1,3 +1,6 @@
+; SHAURYA RANJAN SINGH
+; Roll / User ID: 2501AI16
+; Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents.
 ; test01.asm  (PDF test1: valid but nonsense; has an infinite loop)
 label: ; an unused label
  ldc 0

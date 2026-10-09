@@ -1,0 +1,34 @@
+=== test02 : assembler ===
+Command: asm.exe test02.asm
+
+=== FILE: test02.asm ===
+Line 8: Error: Invalid numeric operand '08ge'
+Line 9: Error: Missing operand for 'ldc'
+Line 10: Error: Unexpected operand for 'add'
+Line 11: Error: Extra text after operand '5,'
+Line 12: Error: Invalid label name '0def'
+Line 13: Error: Unknown mnemonic 'fibble'
+Line 14: Error: Unknown mnemonic '0def'
+
+Syntax errors: 7
+Line 6: Error: Duplicate label 'label'
+
+Pass 2 skipped due to errors.
+Object file not produced due to errors; listing written.
+
+Exit status: 1
+
+=== test02 : emulator ===
+Not run: assembly failed, so no object file (test02.o) was produced.
+
+=== verification ===
+Expected: assembly FAILS on the deliberate errors in test02.asm (PDF test2).
+Observed: 7 syntax errors plus 1 duplicate-label error, non-zero exit, and no
+object file produced.
+
+Known gap: the undefined-label error for "br nonesuch" (source line 7) is NOT
+reported, because pass 2 (label resolution) is skipped once pass-1 errors are
+present. This log does not claim that every error in the file was detected.
+
+Result: PASS for "expected failure" (assembly fails as intended).
+Partial for full error coverage (undefined-label diagnostic missing).

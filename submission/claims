@@ -1,0 +1,61 @@
+SHAURYA RANJAN SINGH
+Roll / User ID: 2501AI16
+Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents.
+
+CS2102 IITPSx Processor Project - Claims
+=========================================
+
+This file lists the claims I make about my submission, according to the marking
+scheme in the project specification.
+
+General (applies to both programs)
+----------------------------------
+- asm.c and emu.c are the assembler and emulator source files, compilable with
+  "gcc asm.c -o asm" and "gcc emu.c -o emu".
+- Both compile with no errors under "gcc -std=c89 -pedantic".
+- Both compile with no warnings under "gcc -std=c89 -pedantic -W -Wall
+  -Wpointer-arith -Wwrite-strings -Wstrict-prototypes".
+- The code uses consistent formatting, a sensible program structure, sensible
+  names, and explanatory comments.
+
+Assembler
+---------
+- Uses an internal form: the source is read once into an array of parsed lines
+  (struct ParsedLine), and the two passes iterate over that internal form.
+- Diagnoses label errors: duplicate labels and undefined (missing) labels.
+- Produces a listing file (.lst).
+- Produces an advanced listing: address, machine word, mnemonic/operand and
+  label rows, with diagnostics shown on the relevant source line.
+- Has a table of instruction names and expected operands (OPTAB).
+- Assembles test programs (see tests/).
+- Includes additional test programs for both success and failure, each with a
+  brief explanation as comments within the file.
+- Implements and demonstrates the SET directive (tests/test03.asm).
+- Implements and demonstrates the mul and div instructions
+  (tests/test04.asm, test07.asm, test10.asm, test11.asm).
+- The bubble sort program assembles (tests/test05.asm).
+- The bubble sort program works: it sorts its data into ascending order and
+  HALTs, leaving 1 2 3 4 5 7 8 9 in memory (see tests/test05.log).
+
+Emulator
+--------
+- Loads an object file (little-endian 32-bit words, from address 0).
+- Produces a memory dump on normal termination.
+- Executes test programs.
+- Executes mul and div correctly, including detection of division by zero
+  (the div instruction with A == 0 reports a runtime error and halts).
+- Detects errant programs (an illegal opcode reports a runtime error and
+  halts; a program counter outside memory is also reported).
+
+Test cases
+----------
+- Provides multiple algorithms written in IITPSx assembly: bubble sort, summing
+  a sequence, evaluating a polynomial, computing an integer mean, finding the
+  minimum and maximum of an array, and computing a factorial.
+- Includes tests that exercise mul and div (test07, test08, test10, test11),
+  including test11 which uses both mul and div in one program.
+
+Note
+----
+Each source and test file begins with the author's name, user id, and a
+declaration of authorship, as required by the marking scheme.

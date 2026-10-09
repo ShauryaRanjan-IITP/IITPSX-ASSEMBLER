@@ -1,0 +1,22 @@
+=== test01 : assembler ===
+Command: asm.exe test01.asm
+
+=== FILE: test01.asm ===
+
+Syntax errors: 0
+Warning: Unused label 'label'
+Object file 'test01.o' written.
+Listing file 'test01.lst' written.
+
+Exit status: 0
+
+=== test01 : emulator ===
+Not run: test01.asm contains an infinite loop ("br loop") and the emulator does
+not implement infinite-loop detection, so the run would never terminate.
+
+=== verification ===
+Expected: a valid but nonsense program assembles with no errors (an unused-label
+warning is permitted).
+Observed: 0 syntax errors, 1 warning (Unused label 'label'), object + listing
+produced.
+Result: PASS (assembler).

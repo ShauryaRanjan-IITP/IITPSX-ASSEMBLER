@@ -1,0 +1,25 @@
+=== test13 : assembler ===
+Command: asm.exe test13.asm
+
+=== FILE: D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test13.asm ===
+
+Syntax errors: 0
+Object file 'D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test13.o' written.
+Listing file 'D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test13.lst' written.
+Exit status: 0
+
+=== test13 : emulator ===
+Command: emu.exe test13.o
+Loaded 4 words from 'D:\IIT-Patna\SEM-3\DL-CO\project\submission\tests\test13.o'.
+Error: Division by zero
+Exit status: 1
+
+=== verification ===
+Expected: division by zero is reported by the emulator and execution stops with
+a non-zero status (essential marking item: "detection of division by zero").
+The program sets A = 0 (the divisor) before div (ldc 5 -> A=5; ldc 0 -> B=5,
+A=0), so div divides B by zero.
+Observed: the emulator prints "Error: Division by zero" and exits with status 1;
+no normal HALT memory dump is produced, so the program is not reported as
+normally halted.
+Result: PASS (division-by-zero detection demonstrated).

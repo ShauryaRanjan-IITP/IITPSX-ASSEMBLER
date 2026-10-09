@@ -1,3 +1,7 @@
+SHAURYA RANJAN SINGH
+Roll / User ID: 2501AI16
+Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents.
+
 CS2102 IITPSx Processor Project - Backend Submission
 ====================================================
 
@@ -19,11 +23,24 @@ tests/
     test02.asm     PDF test2 - error handling; expected to FAIL assembly.
     test03.asm     PDF test3 - SET directive.
     test04.asm     PDF test4 - mul/div; leaves 21 in register A.
-    test0N.lst     Listing produced by the assembler for each test.
-    test01.o, test03.o, test04.o
-                   Object files for the tests that assemble successfully.
+    test05.asm     Bubble sort; sorts its data to 1 2 3 4 5 7 8 9.
+    test06.asm     Sum of {4,7,2,9,5}; result 27.
+    test07.asm     Polynomial 3x^2+2x+5 at x=4 (uses mul); result 61.
+    test08.asm     Integer mean of {4,7,2,9,5} (uses div); result 5.
+    test09.asm     Minimum and maximum of {4,7,2,9,5,1}; min 1, max 9.
+    test10.asm     5! by a loop (uses mul); result 120.
+    test11.asm     (a*b)/c with a=9, b=8, c=4 (uses mul and div); result 18.
+    test12.asm     Undefined label in a branch; expected to FAIL assembly
+                   (Pass 2 reports the undefined label).
+    test13.asm     Division by zero; expected emulator runtime error.
+    test0N.lst     Listing produced for each test by the assembler.
+    test0N.o       Object file for each test that assembles successfully.
+    test0N.log     Real captured assembler + emulator output and a
+                   verification summary (expected vs observed).
     (test02 intentionally produces no .o: assembly fails on the deliberate
      errors in that file.)
+
+claims             Claims file listing the marking-scheme items claimed.
 
 Build
 -----
@@ -53,3 +70,5 @@ Notes
 - Validation verdict: PASS WITH NOTED COMPATIBILITY DIFFERENCES (only
   reference-implementation formatting/partial-object/infinite-loop-warning
   differences remain; no specification defects).
+- The author's name, user id, and authorship declaration appear at the top of
+  the source, test, and documentation files, as required by the specification.

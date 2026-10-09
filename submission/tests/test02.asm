@@ -1,3 +1,6 @@
+; SHAURYA RANJAN SINGH
+; Roll / User ID: 2501AI16
+; Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents.
 ; test02.asm  (PDF test2: error handling; expected to fail assembly)
 label:
 label: ; duplicate label definition

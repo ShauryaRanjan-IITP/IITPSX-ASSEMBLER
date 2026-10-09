@@ -1,8 +1,6 @@
 ; SHAURYA RANJAN SINGH
 ; Roll / User ID: 2501AI16
 ; Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents.
-; test03.asm  (PDF test3: SET directive)
-val: SET 75
-ldc val
-adc val2
-val2: SET 66
+; test12.asm  (undefined label reference; expected to FAIL assembly in Pass 2)
+        br missing_label
+        HALT

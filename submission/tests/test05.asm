@@ -1,7 +1,7 @@
 ; SHAURYA RANJAN SINGH
 ; Roll / User ID: 2501AI16
 ; Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents.
-; bubble_sort.asm
+; test05.asm - bubble sort (same program as submission/bubble_sort.asm)
 ; Sorts the data array into ascending order using bubble sort.
 ; Uses only the IITPSx instruction set. SP is set to 0x1000 so that the
 ; ldl/stl offsets address a zeroed scratch area for the loop variables:

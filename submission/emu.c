@@ -1,3 +1,7 @@
+/* SHAURYA RANJAN SINGH
+   Roll / User ID: 2501AI16
+   Authorship: I declare that I have prepared and reviewed this submission and take responsibility for its contents. */
+
 #include <stdio.h>
 
 #define MEM_SIZE 10000

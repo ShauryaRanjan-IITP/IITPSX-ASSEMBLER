@@ -1,0 +1,33 @@
+=== test04 : assembler ===
+Command: asm.exe test04.asm
+
+=== FILE: test04.asm ===
+
+Syntax errors: 0
+Object file 'test04.o' written.
+Listing file 'test04.lst' written.
+
+Exit status: 0
+
+=== test04 : emulator ===
+Command: emu.exe test04.o
+Loaded 6 words from 'test04.o'.
+00000000 00000600
+00000001 00000700
+00000002 00000013
+00000003 00000200
+00000004 00000014
+00000005 00000012
+Exit status: 0
+
+Note: the submission emulator prints only the memory image on HALT; it does not
+emit register values, so A is not directly observable from this output.
+
+=== verification ===
+Expected: mul then div leaves A = 21 (PDF test4).
+Observed: the submission emulator output above contains no register values.
+Cross-check with the reference emulator (root emu.exe, which supports -r):
+    REG A=00000015 B=0000002A PC=00000006 SP=00000000
+    A = 0x00000015 = 21.
+Result: PASS (A = 21 confirmed by cross-check; not directly observable from the
+submission emulator alone).
